@@ -49,3 +49,11 @@
 
 /* PASO 4 - Administración de pruebas */
 .va-admin-actions{margin-top:22px;padding:18px;border:1px solid #bfdbfe;background:#f8fbff;border-radius:12px}.va-admin-actions h4{margin:0 0 8px;color:#172554}.va-admin-actions p{font-size:12px;color:#475569}.va-admin-buttons{display:flex;gap:10px;flex-wrap:wrap;margin-top:15px}.va-admin-buttons button{background:#2563eb;color:white;border:1px solid #2563eb;border-radius:9px;padding:11px 15px;font-size:13px;font-weight:700}.va-admin-buttons button:disabled{background:#e2e8f0;color:#94a3b8;border-color:#e2e8f0;cursor:not-allowed}.va-admin-buttons .va-cancel{background:#f1f5f9;color:#334155;border-color:#cbd5e1}.va-admin-help{color:#64748b!important;font-size:12px;line-height:1.5}.va-confirm{max-width:480px}.va-admin-intro{font-size:14px;line-height:1.6}.va-days-label{display:block;font-size:13px;font-weight:700;margin:14px 0 7px}.va-confirm input{width:100%;padding:12px;border:1px solid #cbd5e1;border-radius:9px}.va-trial-error{color:#b91c1c;font-size:13px;min-height:18px}.va-success-message{padding:13px 16px;border:1px solid #86efac;background:#f0fdf4;color:#166534;border-radius:10px;margin-bottom:15px;font-size:13px;font-weight:700}
+
+/* PASO 4B - Colores diferenciados de estados de suscripcion */
+.va-badge.ok{background:#dcfce7;color:#166534;border:1px solid #86efac}
+.va-badge.trial{background:#dbeafe;color:#1d4ed8;border:1px solid #93c5fd}
+.va-badge.late{background:#ffedd5;color:#9a3412;border:1px solid #fdba74}
+.va-badge.off{background:#ffe4e6;color:#be123c;border:1px solid #fda4af}
+.va-badge.neutral{background:#e2e8f0;color:#475569;border:1px solid #cbd5e1}
+.va-ficha .va-badge{font-size:12px}
