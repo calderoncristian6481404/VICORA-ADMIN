@@ -71,3 +71,12 @@
 
 /* PASO 6 · Formulario de pagos */
 .va-pay-form{display:grid;gap:13px;margin:18px 0}.va-pay-form label{display:grid;gap:7px;color:#334155;font-size:13px;font-weight:700}.va-pay-form input,.va-pay-form select{width:100%;border:1px solid #cbd5e1;border-radius:9px;padding:12px;background:#fff;color:#17243b}.va-pay-form input:focus,.va-pay-form select:focus{outline:2px solid #93c5fd}.va-badge.neutral{background:#e2e8f0;color:#334155}
+
+/* PASO 7 - agregar al final del estilos.css existente */
+.va-toast-area{position:fixed;right:18px;top:82px;z-index:999;display:grid;gap:10px;width:min(390px,calc(100vw - 36px));pointer-events:none}
+.va-toast{pointer-events:auto;display:flex;align-items:flex-start;justify-content:space-between;gap:14px;padding:15px 17px;border-radius:12px;background:#fff;box-shadow:0 12px 35px #0f172a35;border-left:5px solid #16a34a;color:#1e293b;font-size:13px;line-height:1.5}
+.va-toast-error{border-left-color:#dc2626}
+.va-toast button{background:transparent;border:0;font-size:21px;color:#64748b;line-height:1;cursor:pointer}
+.va-inline-confirm{padding:12px 14px;border-radius:10px;border:1px solid #fbbf24;background:#fffbeb;color:#92400e;font-size:13px;line-height:1.5}
+.va-danger-btn{background:#b91c1c!important;color:#fff!important;border-color:#b91c1c!important}
+.va-danger-btn:disabled{opacity:.45}
