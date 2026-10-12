@@ -61,11 +61,13 @@ function verFichaNegocio(id){
  const field=(label,value)=>`<div><small>${escapeHtml(label)}</small><strong>${escapeHtml(value??'—')}</strong></div>`;
  cerrarDialogos();
  const dialog=document.createElement('div');dialog.className='va-overlay';
- dialog.innerHTML=`<section class="va-dialog" role="dialog" aria-modal="true" aria-label="Ficha del negocio"><header><h3>${escapeHtml(n.nombre)}</h3><button type="button" class="va-close" aria-label="Cerrar">×</button></header><div class="va-ficha">${field('ID de negocio',n.id_negocio)}${field('Responsable',n.responsable)}${field('Correo electrónico',n.email)}${field('Teléfono',n.telefono)}${field('Estado del negocio',n.estado)}${field('Fecha de alta',fechaAR(n.creado_en))}${field('Sistema',s?.sistema)}${field('Plan',s?.plan)}<div><small>Estado de suscripción</small>${etiquetaEstado(estadoNegocio(n))}</div>${field('Modalidad de pago',s?.modalidad_pago)}${field('Vencimiento / fin de prueba',fechaAR(s?.vencimiento))}${field('ID de suscripción',s?.id_suscripcion)}</div><div class="va-admin-actions"><h4>Administrar prueba gratuita</h4><p>Los cambios se validan en Supabase y requieren confirmación.</p><div class="va-admin-buttons"><button type="button" id="vaStartTrial" ${puedeIniciarPrueba(s)?'':'disabled'}>Iniciar prueba</button><button type="button" id="vaExtendTrial" ${puedeExtenderPrueba(s)?'':'disabled'}>Extender prueba</button></div><p class="va-admin-help">${!s?'Este negocio no tiene una suscripción para administrar.':(!puedeIniciarPrueba(s)&&!puedeExtenderPrueba(s))?'Las acciones no están disponibles para esta suscripción según su estado e historial.':'Duración permitida: de 1 a 30 días. La fecha de fin es exclusiva.'}</p></div><div class="va-admin-actions"><h4>Pagos y renovación</h4><p>Un pago confirmado renueva la suscripción por un mes.</p><div class="va-admin-buttons"><button type="button" id="vaPayManual" ${s?.id_suscripcion && estadoNegocio(n)!=='SUSPENDIDA' ?'':'disabled'}>Registrar pago manual</button></div></div><footer>Las operaciones requieren permisos administrativos.</footer></section>`;
+ dialog.innerHTML=`<section class="va-dialog" role="dialog" aria-modal="true" aria-label="Ficha del negocio"><header><h3>${escapeHtml(n.nombre)}</h3><button type="button" class="va-close" aria-label="Cerrar">×</button></header><div class="va-ficha">${field('ID de negocio',n.id_negocio)}${field('Responsable',n.responsable)}${field('Correo electrónico',n.email)}${field('Teléfono',n.telefono)}${field('Estado del negocio',n.estado)}${field('Fecha de alta',fechaAR(n.creado_en))}${field('Sistema',s?.sistema)}${field('Plan',s?.plan)}<div><small>Estado de suscripción</small>${etiquetaEstado(estadoNegocio(n))}</div>${field('Modalidad de pago',s?.modalidad_pago)}${field('Vencimiento / fin de prueba',fechaAR(s?.vencimiento))}${field('ID de suscripción',s?.id_suscripcion)}</div><div class="va-admin-actions"><h4>Administrar prueba gratuita</h4><p>Los cambios se validan en Supabase y requieren confirmación.</p><div class="va-admin-buttons"><button type="button" id="vaStartTrial" ${puedeIniciarPrueba(s)?'':'disabled'}>Iniciar prueba</button><button type="button" id="vaExtendTrial" ${puedeExtenderPrueba(s)?'':'disabled'}>Extender prueba</button></div><p class="va-admin-help">${!s?'Este negocio no tiene una suscripción para administrar.':(!puedeIniciarPrueba(s)&&!puedeExtenderPrueba(s))?'Las acciones no están disponibles para esta suscripción según su estado e historial.':'Duración permitida: de 1 a 30 días. La fecha de fin es exclusiva.'}</p></div><div class="va-admin-actions"><h4>Pagos y renovación</h4><p>Un pago confirmado renueva la suscripción por un mes.</p><div class="va-admin-buttons"><button type="button" id="vaPayManual" ${s?.id_suscripcion && estadoNegocio(n)!=='SUSPENDIDA' ?'':'disabled'}>Registrar pago manual</button></div></div><div class="va-admin-actions"><h4>Estado de la suscripción</h4><p>La suspensión conserva los datos y las fechas de vencimiento. Reactivar no agrega días.</p><div class="va-admin-buttons"><button type="button" id="vaSuspend" ${s?.id_suscripcion && estadoNegocio(n)!=='SUSPENDIDA' && estadoNegocio(n)!=='PENDIENTE' ?'':'disabled'} class="va-danger-btn">Suspender</button><button type="button" id="vaReactivate" ${s?.id_suscripcion && estadoNegocio(n)==='SUSPENDIDA' ?'':'disabled'}>Reactivar</button></div><p class="va-admin-help">La suspensión administrativa no cancela cobros automáticos de Mercado Pago. El acceso comercial debe verificar la suscripción en el servidor.</p></div><footer>Las operaciones requieren permisos administrativos.</footer></section>`;
  dialog.querySelector('.va-close').addEventListener('click',()=>dialog.remove());dialog.addEventListener('click',e=>{if(e.target===dialog)dialog.remove()});
  dialog.querySelector('#vaStartTrial').addEventListener('click',()=>pedirDiasPrueba(n,'iniciar'));
  dialog.querySelector('#vaExtendTrial').addEventListener('click',()=>pedirDiasPrueba(n,'extender'));
   dialog.querySelector('#vaPayManual').addEventListener('click',()=>pedirPagoManual(n));
+  dialog.querySelector('#vaSuspend').addEventListener('click',()=>confirmarEstadoSuscripcion(n,'suspender'));
+  dialog.querySelector('#vaReactivate').addEventListener('click',()=>confirmarEstadoSuscripcion(n,'reactivar'));
  document.body.append(dialog);dialog.querySelector('.va-close').focus();
 }
 function pedirDiasPrueba(n,accion){
@@ -145,18 +147,28 @@ function pedirPagoManual(n){
  <div class="va-pay-form"><label>Importe en pesos (ARS)<input id="vaPayAmount" type="number" min="0.01" step="0.01" required placeholder="Ej.: 15000"></label>
  <label>Medio de pago<select id="vaPayMethod"><option value="TRANSFERENCIA">Transferencia</option><option value="EFECTIVO">Efectivo</option><option value="DEPOSITO">Depósito</option><option value="TARJETA">Tarjeta</option><option value="OTRO">Otro</option></select></label>
  <label>Referencia única del comprobante<input id="vaPayReference" type="text" maxlength="120" minlength="4" required placeholder="Ej.: TRANSF-2026-001"></label></div>
- <p id="vaPayError" class="va-trial-error" role="alert"></p><div class="va-admin-buttons"><button type="button" class="va-cancel">Cancelar</button><button type="button" class="va-accept">Confirmar pago y renovar</button></div></section>`;
+ <p id="vaPayError" class="va-trial-error" role="alert"></p><p id="vaPayConfirm" class="va-inline-confirm" hidden></p><div class="va-admin-buttons"><button type="button" class="va-cancel">Cancelar</button><button type="button" class="va-accept">Confirmar pago y renovar</button></div></section>`;
  dialog.querySelector('.va-close').addEventListener('click',()=>dialog.remove());
  dialog.querySelector('.va-cancel').addEventListener('click',()=>dialog.remove());
  dialog.addEventListener('click',e=>{if(e.target===dialog)dialog.remove();});
- dialog.querySelector('.va-accept').addEventListener('click',async()=>{
-  const importe=Number(dialog.querySelector('#vaPayAmount').value);
+  dialog.querySelectorAll('#vaPayAmount,#vaPayMethod,#vaPayReference').forEach(el=>el.addEventListener('input',()=>{
+   dialog.querySelector('#vaPayConfirm').hidden=true;
+   dialog.querySelector('.va-accept').textContent='Confirmar pago y renovar';
+  }));
+  dialog.querySelector('.va-accept').addEventListener('click',async()=>{
+   const importe=Number(dialog.querySelector('#vaPayAmount').value);
   const metodo=dialog.querySelector('#vaPayMethod').value;
   const referencia=dialog.querySelector('#vaPayReference').value.trim();
   const errorEl=dialog.querySelector('#vaPayError');
   if(!Number.isFinite(importe)||importe<=0||importe>999999999||!/^\d+(\.\d{1,2})?$/.test(String(importe))){errorEl.textContent='Ingresá un importe válido mayor que cero, con hasta 2 decimales.';return;}
   if(referencia.length<4){errorEl.textContent='Ingresá una referencia de al menos 4 caracteres.';return;}
-  if(!window.confirm(`¿Confirmás el pago de $ ${importe.toLocaleString('es-AR')} para ${n.nombre}?\nReferencia: ${referencia}\nSe renovará la suscripción por un mes.`))return;
+   const aviso=dialog.querySelector('#vaPayConfirm');
+   if(aviso.hidden){
+    aviso.textContent=`Confirmá el pago de $ ${importe.toLocaleString('es-AR')} para ${n.nombre}. Referencia: ${referencia}. Se renovará por un mes. Volvé a presionar para confirmar.`;
+    aviso.hidden=false;
+    dialog.querySelector('.va-accept').textContent='Sí, registrar el pago';
+    return;
+   }
   const btn=dialog.querySelector('.va-accept');btn.disabled=true;btn.textContent='Registrando…';errorEl.textContent='';
   try{
    const {data,error}=await client.rpc('vicora_admin_registrar_pago_manual',{
@@ -186,6 +198,43 @@ async function cargarPagos(){
  $('countPagos').textContent=`Mostrando ${rows.length} de ${pagos.length} pagos`;
  $('rowsPagos').innerHTML=rows.length?rows.map(p=>`<tr><td>${fechaAR(p.fecha_pago)}</td><td>${escapeHtml(p.negocio||p.id_negocio)}</td><td>${escapeHtml(fmt.format(Number(p.importe||0)))}</td><td>${escapeHtml(p.metodo)}</td><td>${etiquetaEstado(p.estado)}</td><td>${escapeHtml(p.referencia||'—')}</td><td>${fechaAR(p.periodo_desde)} a ${fechaAR(p.periodo_hasta)}</td></tr>`).join(''):'<tr><td colspan="7" class="va-empty">Todavía no hay pagos para mostrar.</td></tr>';};
  $('searchPagos').addEventListener('input',pintar);$('refreshPagos').addEventListener('click',cargarPagos);pintar();
+}
+
+
+// PASO 7: notificaciones modernas y acciones administrativas protegidas.
+function mostrarAviso(mensaje,tipo='ok'){
+ let cont=document.getElementById('vaToastArea');
+ if(!cont){cont=document.createElement('div');cont.id='vaToastArea';cont.className='va-toast-area';cont.setAttribute('aria-live','polite');document.body.append(cont);}
+ const item=document.createElement('div');item.className='va-toast '+(tipo==='error'?'va-toast-error':'va-toast-ok');
+ const texto=document.createElement('span');texto.textContent=mensaje;
+ const cerrar=document.createElement('button');cerrar.type='button';cerrar.setAttribute('aria-label','Cerrar notificación');cerrar.textContent='×';cerrar.addEventListener('click',()=>item.remove());
+ item.append(texto,cerrar);cont.append(item);setTimeout(()=>item.remove(),6500);
+}
+function confirmarEstadoSuscripcion(n,accion){
+ const s=n.suscripcion;if(!s?.id_suscripcion)return;
+ const suspender=accion==='suspender';
+ cerrarDialogos();
+ const dialog=document.createElement('div');dialog.className='va-overlay';
+ const titulo=suspender?'Suspender suscripción':'Reactivar suscripción';
+ dialog.innerHTML=`<section class="va-dialog va-confirm" role="dialog" aria-modal="true" aria-label="${titulo}"><header><h3>${titulo}</h3><button type="button" class="va-close" aria-label="Cerrar">×</button></header><p class="va-admin-intro">Negocio: <strong>${escapeHtml(n.nombre)}</strong></p><p class="va-inline-confirm">${suspender?'La suscripción pasará a SUSPENDIDA. No se eliminan datos ni se detienen cobros automáticos del proveedor.':'Se restaurará PRUEBA o ACTIVA solo si aún está vigente; de lo contrario quedará VENCIDA. No se extiende el plazo.'}</p><p class="va-trial-error" id="vaStatusError" role="alert"></p><div class="va-admin-buttons"><button type="button" class="va-cancel">Cancelar</button><button type="button" class="va-accept ${suspender?'va-danger-btn':''}">${suspender?'Sí, suspender':'Sí, reactivar'}</button></div></section>`;
+ const close=()=>dialog.remove();
+ dialog.querySelector('.va-close').addEventListener('click',close);
+ dialog.querySelector('.va-cancel').addEventListener('click',close);
+ dialog.addEventListener('click',e=>{if(e.target===dialog)close();});
+ dialog.querySelector('.va-accept').addEventListener('click',async()=>{
+  const btn=dialog.querySelector('.va-accept');btn.disabled=true;btn.textContent='Guardando…';
+  try{
+   const rpc=suspender?'vicora_admin_suspender':'vicora_admin_reactivar';
+   const {data,error}=await client.rpc(rpc,{p_id_suscripcion:s.id_suscripcion});
+   if(error)throw error;
+   if(data?.ok!==true)throw Error('Supabase no confirmó la operación.');
+   close();
+   const page=document.querySelector('.nav.active')?.dataset.page;
+   if(page==='suscripciones')await cargarSuscripciones();else await cargarNegocios();
+   mostrarAviso(`${titulo} completada. Estado: ${data.estado}.`);
+  }catch(err){dialog.querySelector('#vaStatusError').textContent=err.message||String(err);btn.disabled=false;btn.textContent=suspender?'Sí, suspender':'Sí, reactivar';}
+ });
+ document.body.append(dialog);dialog.querySelector('.va-cancel').focus();
 }
 
 function showPage(key){key=pages[key]?key:'inicio';$('pageTitle').textContent=pages[key];document.querySelectorAll('.nav').forEach(b=>b.classList.toggle('active',b.dataset.page===key));if(key==='inicio'){cargarInicio();return;}if(key==='negocios'){cargarNegocios();return;}if(key==='suscripciones'){cargarSuscripciones();return;}if(key==='pagos'){cargarPagos();return;}
