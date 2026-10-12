@@ -43,7 +43,17 @@ function pintarNegocios(){
  $('tablaNegocios').querySelectorAll('[data-negocio]').forEach(b=>b.addEventListener('click',()=>verFichaNegocio(b.dataset.negocio)));
 }
 function puedeIniciarPrueba(s){return !!s && ['PENDIENTE','VENCIDA'].includes(s.estado) && !s.fecha_inicio_prueba && !s.fecha_fin_prueba && !s.fecha_inicio_pago && !s.proximo_vencimiento && !s.id_suscripcion_mp;}
-function puedeExtenderPrueba(s){return !!s && ['PRUEBA','VENCIDA'].includes(s.estado) && !!s.fecha_inicio_prueba && !!s.fecha_fin_prueba && !s.fecha_inicio_pago && !s.proximo_vencimiento && !s.id_suscripcion_mp;}
+function puedeExtenderPrueba(s){
+ if(!s)return false;
+ // El RPC de listado puede devolver estado_vigente y vencimiento,
+ // sin exponer fecha_inicio_prueba ni fecha_fin_prueba.
+ // En ese caso habilitamos la solicitud solo si figura PRUEBA.
+ // La función SQL vuelve a comprobar el historial antes de escribir.
+ const estado=String(s.estado||s.estado_vigente||'').toUpperCase();
+ if(estado==='PRUEBA')return !s.fecha_inicio_pago && !s.proximo_vencimiento && !s.id_suscripcion_mp;
+ if(estado==='VENCIDA')return !!s.fecha_inicio_prueba && !!s.fecha_fin_prueba && !s.fecha_inicio_pago && !s.proximo_vencimiento && !s.id_suscripcion_mp;
+ return false;
+}
 function cerrarDialogos(){document.querySelectorAll('.va-overlay').forEach(x=>x.remove());}
 function verFichaNegocio(id){
  const n=negociosActuales.find(x=>x.id_negocio===id);if(!n)return;
