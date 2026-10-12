@@ -8,3 +8,19 @@
 .va-refresh{margin-top:16px;border:0;border-radius:9px;background:#2563eb;color:#fff;padding:11px 16px;font-weight:700;cursor:pointer}
 @media(max-width:1100px){.va-metrics{grid-template-columns:repeat(2,minmax(0,1fr))}}
 @media(max-width:600px){.va-metrics{grid-template-columns:1fr}.va-metric{padding:16px}}
+
+/* VICORA ADMIN - Tarjetas coloridas: solo estilos, sin modificar datos ni funciones */
+.va-metric{border:1px solid transparent;border-top:4px solid transparent;transition:transform .18s ease,box-shadow .18s ease;box-shadow:0 8px 22px rgba(15,23,42,.07)}
+.va-metric:hover{transform:translateY(-3px);box-shadow:0 13px 26px rgba(15,23,42,.11)}
+.va-metric:nth-child(8n + 1){background:linear-gradient(145deg,#eff6ff,#dbeafe);border-color:#bfdbfe;border-top-color:#2563eb}
+.va-metric:nth-child(8n + 2){background:linear-gradient(145deg,#f0fdf4,#dcfce7);border-color:#bbf7d0;border-top-color:#16a34a}
+.va-metric:nth-child(8n + 3){background:linear-gradient(145deg,#faf5ff,#f3e8ff);border-color:#e9d5ff;border-top-color:#9333ea}
+.va-metric:nth-child(8n + 4){background:linear-gradient(145deg,#fff7ed,#ffedd5);border-color:#fed7aa;border-top-color:#ea580c}
+.va-metric:nth-child(8n + 5){background:linear-gradient(145deg,#f0fdfa,#ccfbf1);border-color:#99f6e4;border-top-color:#0d9488}
+.va-metric:nth-child(8n + 6){background:linear-gradient(145deg,#fff1f2,#ffe4e6);border-color:#fecdd3;border-top-color:#e11d48}
+.va-metric:nth-child(8n + 7){background:linear-gradient(145deg,#eef2ff,#e0e7ff);border-color:#c7d2fe;border-top-color:#4f46e5}
+.va-metric:nth-child(8n + 8){background:linear-gradient(145deg,#fefce8,#fef9c3);border-color:#fde68a;border-top-color:#ca8a04}
+.va-metric .va-metric-label{color:#334155;font-weight:800}
+.va-metric strong{color:#0f172a;font-weight:900}
+.va-metric small{color:#475569}
+@media(prefers-reduced-motion:reduce){.va-metric{transition:none}.va-metric:hover{transform:none}}
