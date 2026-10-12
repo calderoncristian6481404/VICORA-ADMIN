@@ -57,3 +57,14 @@
 .va-badge.off{background:#ffe4e6;color:#be123c;border:1px solid #fda4af}
 .va-badge.neutral{background:#e2e8f0;color:#475569;border:1px solid #cbd5e1}
 .va-ficha .va-badge{font-size:12px}
+
+/* PASO 5: SUSCRIPCIONES */
+.va-sub-summary{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:12px;margin:20px 0}
+.va-sub-stat{background:#f8fafc;border:1px solid #e2e8f0;border-radius:12px;padding:13px;display:flex;align-items:center;justify-content:space-between;gap:8px;min-width:0}
+.va-sub-stat strong{font-size:22px;color:#172554}
+.va-sub-filters{display:flex;gap:12px;flex-wrap:wrap;align-items:center;margin:12px 0}
+.va-business .va-sub-filters input[type=search]{margin:0;flex:1 1 260px}
+.va-sub-filters select{border:1px solid #cbd5e1;border-radius:10px;padding:12px 14px;background:white;color:#334155;min-width:180px}
+.va-sub-note{font-size:12px;color:#64748b;line-height:1.6;margin-top:18px}
+@media(max-width:1100px){.va-sub-summary{grid-template-columns:repeat(3,minmax(0,1fr))}}
+@media(max-width:600px){.va-sub-summary{grid-template-columns:repeat(2,minmax(0,1fr))}.va-sub-stat{padding:10px}.va-sub-stat strong{font-size:19px}}

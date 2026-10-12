@@ -84,7 +84,7 @@ function pedirDiasPrueba(n,accion){
    const {data,error}=await client.rpc(funcion,{p_id_suscripcion:s.id_suscripcion,p_dias:dias});
    if(error)throw error;
    if(data?.ok!==true)throw Error('Supabase no confirmó la operación.');
-   dialog.remove();await cargarNegocios();
+   dialog.remove();if(document.querySelector('.nav.active')?.dataset.page==='suscripciones'){await cargarSuscripciones();}else{await cargarNegocios();}
    const notice=document.createElement('div');notice.className='va-success-message';notice.setAttribute('role','status');notice.textContent=`${titulo} realizada correctamente. Datos actualizados.`;
    $('pageContent').prepend(notice);setTimeout(()=>notice.remove(),6500);
   }catch(err){dialog.querySelector('#vaTrialError').textContent=err.message||String(err);boton.disabled=false;boton.textContent='Confirmar operación';}
@@ -100,7 +100,39 @@ async function cargarNegocios(){
  $('busquedaNegocios').addEventListener('input',pintarNegocios);$('actualizarNegocios').addEventListener('click',cargarNegocios);pintarNegocios();
 }
 
-function showPage(key){key=pages[key]?key:'inicio';$('pageTitle').textContent=pages[key];document.querySelectorAll('.nav').forEach(b=>b.classList.toggle('active',b.dataset.page===key));if(key==='inicio'){cargarInicio();return;}if(key==='negocios'){cargarNegocios();return;}
+// PASO 5: vista de suscripciones. Solo lectura; reutiliza el RPC seguro existente.
+let suscripcionesActuales=[];
+function pintarSuscripciones(){
+ const q=($('busquedaSuscripciones')?.value||'').trim().toLocaleLowerCase('es');
+ const filtro=$('filtroSuscripciones')?.value||'TODAS';
+ const rows=suscripcionesActuales.filter(n=>{
+  const s=n.suscripcion||{};const estado=estadoNegocio(n).toUpperCase();
+  return (filtro==='TODAS'||estado===filtro)&&[n.nombre,n.id_negocio,n.responsable,s.plan,s.sistema,s.id_suscripcion,estado].some(v=>String(v||'').toLocaleLowerCase('es').includes(q));
+ });
+ $('conteoSuscripciones').textContent=`Mostrando ${rows.length} de ${suscripcionesActuales.length} suscripciones del listado actual`;
+ $('tablaSuscripciones').innerHTML=rows.length?rows.map(n=>{const s=n.suscripcion;return `<tr><td><strong>${escapeHtml(n.nombre)}</strong><small>${escapeHtml(n.id_negocio)}</small></td><td>${escapeHtml(s.sistema||'—')}</td><td>${escapeHtml(s.plan||'—')}</td><td>${etiquetaEstado(estadoNegocio(n))}</td><td>${fechaAR(s.vencimiento)}</td><td>${escapeHtml(s.modalidad_pago||'—')}</td><td><button type="button" class="va-detail-btn" data-subnegocio="${escapeHtml(n.id_negocio)}">Ver ficha</button></td></tr>`;}).join(''):'<tr><td colspan="7" class="va-empty">No hay suscripciones para este filtro.</td></tr>';
+ $('tablaSuscripciones').querySelectorAll('[data-subnegocio]').forEach(b=>b.addEventListener('click',()=>verFichaNegocio(b.dataset.subnegocio)));
+}
+async function cargarSuscripciones(){
+ $('pageContent').innerHTML='<section class="panel"><p>Cargando suscripciones desde Supabase…</p></section>';
+ const {data,error}=await client.rpc('vicora_admin_negocios');
+ if(error){$('pageContent').innerHTML=`<section class="panel"><h3>No se pudieron cargar las suscripciones</h3><p>${escapeHtml(error.message)}</p><button type="button" class="va-refresh" id="retrySubs">Reintentar</button></section>`;$('retrySubs').addEventListener('click',cargarSuscripciones);return;}
+ negociosActuales=Array.isArray(data)?data:[];
+ suscripcionesActuales=negociosActuales.filter(n=>n.suscripcion&&n.suscripcion.id_suscripcion);
+ const estados=['ACTIVA','PRUEBA','VENCIDA','SUSPENDIDA','PENDIENTE'];
+ const counts=Object.fromEntries(estados.map(e=>[e,suscripcionesActuales.filter(n=>estadoNegocio(n).toUpperCase()===e).length]));
+ $('pageContent').innerHTML=`<section class="va-business"><div class="va-business-head"><div><h3>Suscripciones</h3><p>Estados y vencimientos consultados en Supabase.</p></div><button type="button" class="va-refresh" id="actualizarSuscripciones">Actualizar</button></div>
+ <div class="va-sub-summary">${estados.map(e=>`<div class="va-sub-stat">${etiquetaEstado(e)}<strong>${counts[e]}</strong></div>`).join('')}</div>
+ <div class="va-sub-filters"><input id="busquedaSuscripciones" type="search" placeholder="Buscar negocio, plan, sistema o ID…" aria-label="Buscar suscripciones"><select id="filtroSuscripciones" aria-label="Filtrar estado"><option value="TODAS">Todos los estados</option>${estados.map(e=>`<option value="${e}">${e}</option>`).join('')}</select></div>
+ <p id="conteoSuscripciones" class="va-count"></p><div class="va-table-scroll"><table class="va-table"><thead><tr><th>Negocio</th><th>Sistema</th><th>Plan</th><th>Estado</th><th>Vencimiento</th><th>Modalidad</th><th>Acciones</th></tr></thead><tbody id="tablaSuscripciones"></tbody></table></div>
+ <p class="va-sub-note">Esta primera vista utiliza el listado administrativo existente, que devuelve una suscripción por negocio. Cuando agreguemos otros sistemas a VICORA, ampliaremos la consulta para mostrar todas las suscripciones de cada negocio. Pagos, renovaciones y suspensiones se incorporarán con funciones seguras específicas.</p></section>`;
+ $('busquedaSuscripciones').addEventListener('input',pintarSuscripciones);
+ $('filtroSuscripciones').addEventListener('change',pintarSuscripciones);
+ $('actualizarSuscripciones').addEventListener('click',cargarSuscripciones);
+ pintarSuscripciones();
+}
+
+function showPage(key){key=pages[key]?key:'inicio';$('pageTitle').textContent=pages[key];document.querySelectorAll('.nav').forEach(b=>b.classList.toggle('active',b.dataset.page===key));if(key==='inicio'){cargarInicio();return;}if(key==='negocios'){cargarNegocios();return;}if(key==='suscripciones'){cargarSuscripciones();return;}
  const descriptions={negocios:'Próxima etapa: listado de negocios y suscripciones, con operaciones administrativas seguras.',suscripciones:'Próxima etapa: planes, precios, renovaciones y suspensiones.',pagos:'Próxima etapa: historial detallado de pagos y filtros.'};
  $('pageContent').innerHTML=`<section class="panel"><span class="status">Acceso verificado</span><h3>${escapeHtml(pages[key])}</h3><p>${escapeHtml(descriptions[key])}</p></section>`;
 }
