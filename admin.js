@@ -42,9 +42,44 @@ function pintarNegocios(){
  $('tablaNegocios').innerHTML=rows.length?rows.map(n=>{const s=n.suscripcion;return `<tr><td><strong>${escapeHtml(n.nombre)}</strong><small>${escapeHtml(n.id_negocio)}</small></td><td>${escapeHtml(n.responsable||'—')}</td><td>${escapeHtml(n.email||'—')}</td><td>${escapeHtml(s?.plan||'—')}</td><td>${etiquetaEstado(estadoNegocio(n))}</td><td>${fechaAR(s?.vencimiento)}</td><td><button class="va-detail-btn" data-negocio="${escapeHtml(n.id_negocio)}">Ver ficha</button></td></tr>`}).join(''):'<tr><td colspan="7" class="va-empty">No se encontraron negocios.</td></tr>';
  $('tablaNegocios').querySelectorAll('[data-negocio]').forEach(b=>b.addEventListener('click',()=>verFichaNegocio(b.dataset.negocio)));
 }
-function verFichaNegocio(id){const n=negociosActuales.find(x=>x.id_negocio===id);if(!n)return;const s=n.suscripcion;const field=(label,value)=>`<div><small>${escapeHtml(label)}</small><strong>${escapeHtml(value??'—')}</strong></div>`;
- const dialog=document.createElement('div');dialog.className='va-overlay';dialog.innerHTML=`<section class="va-dialog" role="dialog" aria-modal="true" aria-label="Ficha del negocio"><header><h3>${escapeHtml(n.nombre)}</h3><button type="button" class="va-close" aria-label="Cerrar">×</button></header><div class="va-ficha">${field('ID de negocio',n.id_negocio)}${field('Responsable',n.responsable)}${field('Correo electrónico',n.email)}${field('Teléfono',n.telefono)}${field('Estado del negocio',n.estado)}${field('Fecha de alta',fechaAR(n.creado_en))}${field('Sistema',s?.sistema)}${field('Plan',s?.plan)}${field('Estado de suscripción',estadoNegocio(n))}${field('Modalidad de pago',s?.modalidad_pago)}${field('Vencimiento / fin de prueba',fechaAR(s?.vencimiento))}${field('ID de suscripción',s?.id_suscripcion)}</div><footer>Consulta de solo lectura. Las acciones administrativas se agregarán en una próxima etapa.</footer></section>`;
- const close=()=>dialog.remove();dialog.querySelector('.va-close').addEventListener('click',close);dialog.addEventListener('click',e=>{if(e.target===dialog)close()});document.addEventListener('keydown',function esc(e){if(e.key==='Escape'){close();document.removeEventListener('keydown',esc)}},{once:true});document.body.append(dialog);dialog.querySelector('.va-close').focus();
+function puedeIniciarPrueba(s){return !!s && ['PENDIENTE','VENCIDA'].includes(s.estado) && !s.fecha_inicio_prueba && !s.fecha_fin_prueba && !s.fecha_inicio_pago && !s.proximo_vencimiento && !s.id_suscripcion_mp;}
+function puedeExtenderPrueba(s){return !!s && ['PRUEBA','VENCIDA'].includes(s.estado) && !!s.fecha_inicio_prueba && !!s.fecha_fin_prueba && !s.fecha_inicio_pago && !s.proximo_vencimiento && !s.id_suscripcion_mp;}
+function cerrarDialogos(){document.querySelectorAll('.va-overlay').forEach(x=>x.remove());}
+function verFichaNegocio(id){
+ const n=negociosActuales.find(x=>x.id_negocio===id);if(!n)return;
+ const s=n.suscripcion;
+ const field=(label,value)=>`<div><small>${escapeHtml(label)}</small><strong>${escapeHtml(value??'—')}</strong></div>`;
+ cerrarDialogos();
+ const dialog=document.createElement('div');dialog.className='va-overlay';
+ dialog.innerHTML=`<section class="va-dialog" role="dialog" aria-modal="true" aria-label="Ficha del negocio"><header><h3>${escapeHtml(n.nombre)}</h3><button type="button" class="va-close" aria-label="Cerrar">×</button></header><div class="va-ficha">${field('ID de negocio',n.id_negocio)}${field('Responsable',n.responsable)}${field('Correo electrónico',n.email)}${field('Teléfono',n.telefono)}${field('Estado del negocio',n.estado)}${field('Fecha de alta',fechaAR(n.creado_en))}${field('Sistema',s?.sistema)}${field('Plan',s?.plan)}${field('Estado de suscripción',estadoNegocio(n))}${field('Modalidad de pago',s?.modalidad_pago)}${field('Vencimiento / fin de prueba',fechaAR(s?.vencimiento))}${field('ID de suscripción',s?.id_suscripcion)}</div><div class="va-admin-actions"><h4>Administrar prueba gratuita</h4><p>Los cambios se validan en Supabase y requieren confirmación.</p><div class="va-admin-buttons"><button type="button" id="vaStartTrial" ${puedeIniciarPrueba(s)?'':'disabled'}>Iniciar prueba</button><button type="button" id="vaExtendTrial" ${puedeExtenderPrueba(s)?'':'disabled'}>Extender prueba</button></div><p class="va-admin-help">${!s?'Este negocio no tiene una suscripción para administrar.':(!puedeIniciarPrueba(s)&&!puedeExtenderPrueba(s))?'Las acciones no están disponibles para esta suscripción según su estado e historial.':'Duración permitida: de 1 a 30 días. La fecha de fin es exclusiva.'}</p></div><footer>Las operaciones requieren permisos administrativos.</footer></section>`;
+ dialog.querySelector('.va-close').addEventListener('click',()=>dialog.remove());dialog.addEventListener('click',e=>{if(e.target===dialog)dialog.remove()});
+ dialog.querySelector('#vaStartTrial').addEventListener('click',()=>pedirDiasPrueba(n,'iniciar'));
+ dialog.querySelector('#vaExtendTrial').addEventListener('click',()=>pedirDiasPrueba(n,'extender'));
+ document.body.append(dialog);dialog.querySelector('.va-close').focus();
+}
+function pedirDiasPrueba(n,accion){
+ const s=n.suscripcion;if(!s?.id_suscripcion)return;
+ cerrarDialogos();
+ const dialog=document.createElement('div');dialog.className='va-overlay';
+ const titulo=accion==='iniciar'?'Iniciar prueba gratuita':'Extender prueba gratuita';
+ dialog.innerHTML=`<section class="va-dialog va-confirm" role="dialog" aria-modal="true" aria-label="${titulo}"><header><h3>${titulo}</h3><button class="va-close" type="button" aria-label="Cerrar">×</button></header><p class="va-admin-intro">Negocio: <strong>${escapeHtml(n.nombre)}</strong></p><label class="va-days-label" for="vaTrialDays">Cantidad de días (1 a 30)</label><input id="vaTrialDays" type="number" min="1" max="30" step="1" value="${accion==='iniciar'?7:7}" required><p class="va-admin-help">${accion==='extender'?'La extensión se calcula desde la fecha de vencimiento o desde hoy, la que sea posterior.':'La prueba empieza hoy. El día de vencimiento ya no se considera vigente.'}</p><p id="vaTrialError" class="va-trial-error" role="alert"></p><div class="va-admin-buttons"><button type="button" class="va-cancel">Cancelar</button><button type="button" class="va-accept">Confirmar operación</button></div></section>`;
+ dialog.querySelector('.va-close').addEventListener('click',()=>dialog.remove());dialog.querySelector('.va-cancel').addEventListener('click',()=>dialog.remove());
+ dialog.addEventListener('click',e=>{if(e.target===dialog)dialog.remove()});
+ dialog.querySelector('.va-accept').addEventListener('click',async()=>{
+  const dias=Number(dialog.querySelector('#vaTrialDays').value);
+  if(!Number.isInteger(dias)||dias<1||dias>30){dialog.querySelector('#vaTrialError').textContent='Ingresá un número entero de 1 a 30.';return;}
+  const boton=dialog.querySelector('.va-accept');boton.disabled=true;boton.textContent='Guardando…';dialog.querySelector('#vaTrialError').textContent='';
+  try{
+   const funcion=accion==='iniciar'?'vicora_admin_iniciar_prueba':'vicora_admin_extender_prueba';
+   const {data,error}=await client.rpc(funcion,{p_id_suscripcion:s.id_suscripcion,p_dias:dias});
+   if(error)throw error;
+   if(data?.ok!==true)throw Error('Supabase no confirmó la operación.');
+   dialog.remove();await cargarNegocios();
+   const notice=document.createElement('div');notice.className='va-success-message';notice.setAttribute('role','status');notice.textContent=`${titulo} realizada correctamente. Datos actualizados.`;
+   $('pageContent').prepend(notice);setTimeout(()=>notice.remove(),6500);
+  }catch(err){dialog.querySelector('#vaTrialError').textContent=err.message||String(err);boton.disabled=false;boton.textContent='Confirmar operación';}
+ });
+ document.body.append(dialog);dialog.querySelector('#vaTrialDays').focus();dialog.querySelector('#vaTrialDays').select();
 }
 async function cargarNegocios(){
  $('pageContent').innerHTML='<section class="panel"><p>Cargando negocios desde Supabase…</p></section>';
