@@ -4,6 +4,48 @@ const SUPABASE_URL='https://nxdimgzcsjnjjdfdpatp.supabase.co';
 const SUPABASE_PUBLIC_KEY='sb_publishable_4LbyNm4vT3qBh6v6OIjB4Q_IDb4OpRB';
 let client;
 const $=id=>document.getElementById(id);
+// Consulta administrativa con control de sesión y un único reintento seguro.
+// No otorga permisos: Supabase sigue validando vicora_es_admin() en el servidor.
+let renovacionAdminEnCurso = null;
+async function asegurarSesionAdmin(forzarRenovacion = false) {
+ const {data:{session},error} = await client.auth.getSession();
+ if(error) throw error;
+ if(!session) throw Error('La sesión finalizó. Cerrá sesión y volvé a ingresar.');
+ const venceEn = Number(session.expires_at || 0) * 1000 - Date.now();
+ if(forzarRenovacion || (session.expires_at && venceEn < 60000)) {
+  if(!renovacionAdminEnCurso) {
+   renovacionAdminEnCurso = client.auth.refreshSession().finally(()=>{renovacionAdminEnCurso=null;});
+  }
+  const {data,error:refreshError} = await renovacionAdminEnCurso;
+  if(refreshError || !data?.session) throw refreshError || Error('No se pudo renovar la sesión.');
+  return data.session;
+ }
+ return session;
+}
+async function adminRpc(nombre, parametros) {
+ try { await asegurarSesionAdmin(); }
+ catch(e) { return {data:null,error:e}; }
+ let resultado = await client.rpc(nombre,parametros);
+ const mensaje = String(resultado.error?.message || '').toLowerCase();
+ const falloAutenticacion = resultado.error && (
+  mensaje.includes('permission denied for function') ||
+  mensaje.includes('jwt expired') ||
+  mensaje.includes('invalid jwt') ||
+  resultado.error.status === 401 || resultado.error.status === 403
+ );
+ if(!falloAutenticacion) return resultado;
+ try {
+  await asegurarSesionAdmin(true);
+  const permiso = await client.rpc('vicora_es_admin');
+  if(permiso.error) throw permiso.error;
+  if(permiso.data !== true) throw Error('Esta cuenta no tiene autorización administrativa.');
+  resultado = await client.rpc(nombre,parametros);
+ } catch(e) {
+  return {data:null,error:e};
+ }
+ return resultado;
+}
+
 const pages={
  inicio:'Inicio',negocios:'Negocios',suscripciones:'Suscripciones',pagos:'Pagos',planes:'Planes y precios'
 };
@@ -26,7 +68,7 @@ function renderInicio(d){
 }
 async function cargarInicio(){
  $('pageContent').innerHTML='<section class="panel"><p>Consultando información real de Supabase…</p></section>';
- const {data,error}=await client.rpc('vicora_admin_resumen');
+ const {data,error}=await adminRpc('vicora_admin_resumen');
  if(error){$('pageContent').innerHTML=`<section class="panel"><h3>No se pudo cargar el resumen</h3><p>${escapeHtml(error.message)}</p><p>Verificá que hayas ejecutado el archivo SQL del Paso 2 en Supabase.</p><button type="button" class="va-refresh" id="retrySummary">Reintentar</button></section>`;$('retrySummary').addEventListener('click',cargarInicio);return;}
  renderInicio(data||{});
 }
@@ -86,7 +128,7 @@ function editarTelefonoNegocio(n){
   if(telefono && (telefono.length>25||!/^\+?[0-9 ()-]{8,25}$/.test(telefono))){errorEl.textContent='Ingresá un número válido, por ejemplo +54 9 3544 123456.';return;}
   const boton=dialog.querySelector('.va-accept');boton.disabled=true;boton.textContent='Guardando…';errorEl.textContent='';
   try{
-   const {data,error}=await client.rpc('vicora_admin_guardar_telefono',{p_id_negocio:n.id_negocio,p_telefono:telefono});
+   const {data,error}=await adminRpc('vicora_admin_guardar_telefono',{p_id_negocio:n.id_negocio,p_telefono:telefono});
    if(error)throw error;
    if(data?.ok!==true)throw Error('Supabase no confirmó la modificación.');
    n.telefono=data.telefono||null;
@@ -113,7 +155,7 @@ function pedirDiasPrueba(n,accion){
   const boton=dialog.querySelector('.va-accept');boton.disabled=true;boton.textContent='Guardando…';dialog.querySelector('#vaTrialError').textContent='';
   try{
    const funcion=accion==='iniciar'?'vicora_admin_iniciar_prueba':'vicora_admin_extender_prueba';
-   const {data,error}=await client.rpc(funcion,{p_id_suscripcion:s.id_suscripcion,p_dias:dias});
+   const {data,error}=await adminRpc(funcion,{p_id_suscripcion:s.id_suscripcion,p_dias:dias});
    if(error)throw error;
    if(data?.ok!==true)throw Error('Supabase no confirmó la operación.');
    dialog.remove();if(document.querySelector('.nav.active')?.dataset.page==='suscripciones'){await cargarSuscripciones();}else{await cargarNegocios();}
@@ -125,7 +167,7 @@ function pedirDiasPrueba(n,accion){
 }
 async function cargarNegocios(){
  $('pageContent').innerHTML='<section class="panel"><p>Cargando negocios desde Supabase…</p></section>';
- const {data,error}=await client.rpc('vicora_admin_negocios');
+ const {data,error}=await adminRpc('vicora_admin_negocios');
  if(error){$('pageContent').innerHTML=`<section class="panel"><h3>No se pudo cargar Negocios</h3><p>${escapeHtml(error.message)}</p><p>Verificá que el SQL del Paso 3 se haya ejecutado correctamente.</p><button type="button" class="va-refresh" id="reintentarNegocios">Reintentar</button></section>`;$('reintentarNegocios').addEventListener('click',cargarNegocios);return;}
  negociosActuales=Array.isArray(data)?data:[];
  $('pageContent').innerHTML=`<section class="va-business"><div class="va-business-head"><div><h3>Negocios registrados</h3><p>Información real de VICORA. Sin cambios en los datos.</p></div><button class="va-refresh" id="actualizarNegocios">Actualizar</button></div><input id="busquedaNegocios" type="search" placeholder="Buscar negocio, responsable, correo o estado…" aria-label="Buscar negocios"><p id="conteoNegocios" class="va-count"></p><div class="va-table-scroll"><table class="va-table"><thead><tr><th>Negocio</th><th>Responsable</th><th>Correo</th><th>Plan</th><th>Suscripción</th><th>Vencimiento</th><th>Acciones</th></tr></thead><tbody id="tablaNegocios"></tbody></table></div></section>`;
@@ -238,7 +280,7 @@ function pintarHistorialAvisos(){
 async function cargarHistorialAvisos(){
  const area=$('historialAvisos');if(!area)return;
  area.innerHTML='<p>Consultando avisos registrados…</p>';
- const {data,error}=await client.rpc('vicora_admin_listar_avisos');
+ const {data,error}=await adminRpc('vicora_admin_listar_avisos');
  if(error){area.innerHTML=`<p role="alert">No se pudo consultar el historial: ${escapeHtml(error.message)}</p>`;return;}
  avisosWhatsApp=Array.isArray(data)?data:[];
  pintarHistorialAvisos();pintarVencimientos();
@@ -255,7 +297,7 @@ function confirmarRegistroAviso(n,tipo){
  dialog.querySelector('.va-accept').addEventListener('click',async()=>{
   const btn=dialog.querySelector('.va-accept');btn.disabled=true;btn.textContent='Guardando…';
   try{
-   const {data,error}=await client.rpc('vicora_admin_registrar_aviso',{
+   const {data,error}=await adminRpc('vicora_admin_registrar_aviso',{
     p_id_negocio:n.id_negocio,p_id_suscripcion:s.id_suscripcion||null,
     p_tipo_aviso:tipo,p_observaciones:dialog.querySelector('#vaAvisoObs').value.trim()||null
    });
@@ -282,7 +324,7 @@ function pintarSuscripciones(){
 }
 async function cargarSuscripciones(){
  $('pageContent').innerHTML='<section class="panel"><p>Cargando suscripciones desde Supabase…</p></section>';
- const {data,error}=await client.rpc('vicora_admin_negocios');
+ const {data,error}=await adminRpc('vicora_admin_negocios');
  if(error){$('pageContent').innerHTML=`<section class="panel"><h3>No se pudieron cargar las suscripciones</h3><p>${escapeHtml(error.message)}</p><button type="button" class="va-refresh" id="retrySubs">Reintentar</button></section>`;$('retrySubs').addEventListener('click',cargarSuscripciones);return;}
  negociosActuales=Array.isArray(data)?data:[];
  suscripcionesActuales=negociosActuales.filter(n=>n.suscripcion&&n.suscripcion.id_suscripcion);
@@ -347,7 +389,7 @@ function pedirPagoManual(n){
    }
   const btn=dialog.querySelector('.va-accept');btn.disabled=true;btn.textContent='Registrando…';errorEl.textContent='';
   try{
-   const {data,error}=await client.rpc('vicora_admin_registrar_pago_manual',{
+   const {data,error}=await adminRpc('vicora_admin_registrar_pago_manual',{
     p_id_suscripcion:s.id_suscripcion,p_importe:importe,p_metodo:metodo,p_referencia:referencia,p_fecha_pago:null
    });
    if(error)throw error;
@@ -367,9 +409,9 @@ function pedirPagoManual(n){
 async function cargarPagos(){
  $('pageContent').innerHTML='<section class="panel"><p>Cargando control de cobranzas e historial…</p></section>';
  const [pagosR, negociosR, resumenR]=await Promise.all([
-  client.rpc('vicora_admin_historial_pagos'),
-  client.rpc('vicora_admin_negocios'),
-  client.rpc('vicora_admin_resumen')
+  adminRpc('vicora_admin_historial_pagos'),
+  adminRpc('vicora_admin_negocios'),
+  adminRpc('vicora_admin_resumen')
  ]);
  if(pagosR.error){
   $('pageContent').innerHTML=`<section class="panel"><h3>No se pudo cargar Pagos</h3><p>${escapeHtml(pagosR.error.message)}</p><button class="va-refresh" id="retryPagos">Reintentar</button></section>`;
@@ -490,7 +532,7 @@ function confirmarEstadoSuscripcion(n,accion){
   const btn=dialog.querySelector('.va-accept');btn.disabled=true;btn.textContent='Guardando…';
   try{
    const rpc=suspender?'vicora_admin_suspender':'vicora_admin_reactivar';
-   const {data,error}=await client.rpc(rpc,{p_id_suscripcion:s.id_suscripcion});
+   const {data,error}=await adminRpc(rpc,{p_id_suscripcion:s.id_suscripcion});
    if(error)throw error;
    if(data?.ok!==true)throw Error('Supabase no confirmó la operación.');
    close();
@@ -508,7 +550,7 @@ let planesActuales=[];
 const formatoPrecio=new Intl.NumberFormat('es-AR',{style:'currency',currency:'ARS',maximumFractionDigits:2});
 async function cargarPlanes(){
  $('pageContent').innerHTML='<section class="panel"><p>Cargando sistemas y planes…</p></section>';
- const {data,error}=await client.rpc('vicora_admin_listar_planes');
+ const {data,error}=await adminRpc('vicora_admin_listar_planes');
  if(error){$('pageContent').innerHTML=`<section class="panel"><h3>No se pudieron cargar los planes</h3><p>${escapeHtml(error.message)}</p><p>Ejecutá primero el SQL del Paso 8.</p><button class="va-refresh" id="retryPlanes">Reintentar</button></section>`;$('retryPlanes').addEventListener('click',cargarPlanes);return;}
  const datos=data||{};planesActuales=Array.isArray(datos.planes)?datos.planes:[];
  const sistemas=Array.isArray(datos.sistemas)?datos.sistemas:[];
@@ -530,7 +572,7 @@ function editarPlan(plan,sistemas){
   const err=dialog.querySelector('#pError');
   if(!sistema||!nombre||nombre.length>80||!Number.isFinite(precio)||precio<0||precio>999999999||!Number.isInteger(dias)||dias<0||dias>365){err.textContent='Revisá el sistema, el nombre, el precio y los días de prueba.';return;}
   const b=dialog.querySelector('.va-accept');b.disabled=true;b.textContent='Guardando…';err.textContent='';
-  try{const {data,error}=await client.rpc('vicora_admin_guardar_plan',{p_id_plan:plan?.id_plan||null,p_id_sistema:sistema,p_nombre:nombre,p_precio_mensual:precio,p_dias_prueba:dias,p_estado:estado});if(error)throw error;if(data?.ok!==true)throw Error('Supabase no confirmó la operación.');dialog.remove();await cargarPlanes();mostrarAviso('Plan guardado correctamente.');}
+  try{const {data,error}=await adminRpc('vicora_admin_guardar_plan',{p_id_plan:plan?.id_plan||null,p_id_sistema:sistema,p_nombre:nombre,p_precio_mensual:precio,p_dias_prueba:dias,p_estado:estado});if(error)throw error;if(data?.ok!==true)throw Error('Supabase no confirmó la operación.');dialog.remove();await cargarPlanes();mostrarAviso('Plan guardado correctamente.');}
   catch(e){err.textContent=e.message||String(e);b.disabled=false;b.textContent='Guardar plan';}
  });
  document.body.append(dialog);dialog.querySelector('#pNombre').focus();
@@ -540,7 +582,7 @@ function showPage(key){key=pages[key]?key:'inicio';$('pageTitle').textContent=pa
  const descriptions={negocios:'Próxima etapa: listado de negocios y suscripciones, con operaciones administrativas seguras.',suscripciones:'Próxima etapa: planes, precios, renovaciones y suspensiones.',pagos:'Próxima etapa: historial detallado de pagos y filtros.'};
  $('pageContent').innerHTML=`<section class="panel"><span class="status">Acceso verificado</span><h3>${escapeHtml(pages[key])}</h3><p>${escapeHtml(descriptions[key])}</p></section>`;
 }
-async function verifyAccess(){screen('loading');try{const {data:{session},error:sessionError}=await client.auth.getSession();if(sessionError)throw sessionError;if(!session){screen('login');return;}const {data,error}=await client.rpc('vicora_es_admin');if(error)throw error;if(data!==true){await client.auth.signOut();screen('login');$('loginMessage').textContent='Esta cuenta no tiene autorización para ingresar a VICORA ADMIN.';return;}$('adminEmail').textContent=session.user.email||'Administrador';screen('app');showPage('inicio');}catch(err){screen('login');$('loginMessage').textContent='No se pudo verificar el permiso administrativo: '+(err.message||String(err));}}
+async function verifyAccess(){screen('loading');try{const {data:{session},error:sessionError}=await client.auth.getSession();if(sessionError)throw sessionError;if(!session){screen('login');return;}const {data,error}=await adminRpc('vicora_es_admin');if(error)throw error;if(data!==true){await client.auth.signOut();screen('login');$('loginMessage').textContent='Esta cuenta no tiene autorización para ingresar a VICORA ADMIN.';return;}$('adminEmail').textContent=session.user.email||'Administrador';screen('app');showPage('inicio');}catch(err){screen('login');$('loginMessage').textContent='No se pudo verificar el permiso administrativo: '+(err.message||String(err));}}
 async function login(ev){ev.preventDefault();$('loginMessage').textContent='';$('loginButton').disabled=true;try{const {error}=await client.auth.signInWithPassword({email:$('email').value.trim(),password:$('password').value});if(error)throw error;$('password').value='';await verifyAccess();}catch(err){$('loginMessage').textContent='No se pudo iniciar sesión: '+(err.message||String(err));}finally{$('loginButton').disabled=false;}}
 async function logout(){await client.auth.signOut();$('password').value='';$('loginMessage').textContent='';screen('login');}
 window.addEventListener('DOMContentLoaded',async()=>{try{if(!window.supabase?.createClient)throw Error('No se pudo cargar la biblioteca de Supabase.');client=window.supabase.createClient(SUPABASE_URL,SUPABASE_PUBLIC_KEY,{auth:{persistSession:true,autoRefreshToken:true,detectSessionInUrl:false,flowType:'pkce',storageKey:'vicora-admin-auth'}});$('loginForm').addEventListener('submit',login);$('logoutButton').addEventListener('click',logout);document.querySelectorAll('.nav').forEach(b=>b.addEventListener('click',()=>showPage(b.dataset.page)));await verifyAccess();}catch(err){screen('login');$('loginMessage').textContent=err.message||String(err);}});
