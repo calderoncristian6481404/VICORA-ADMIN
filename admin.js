@@ -5,7 +5,7 @@ const SUPABASE_PUBLIC_KEY='sb_publishable_4LbyNm4vT3qBh6v6OIjB4Q_IDb4OpRB';
 let client;
 const $=id=>document.getElementById(id);
 const pages={
- inicio:'Inicio',negocios:'Negocios',suscripciones:'Suscripciones',pagos:'Pagos'
+ inicio:'Inicio',negocios:'Negocios',suscripciones:'Suscripciones',pagos:'Pagos',planes:'Planes y precios'
 };
 function screen(which){$('login').hidden=which!=='login';$('loading').hidden=which!=='loading';$('app').hidden=which!=='app';}
 function escapeHtml(value){return String(value??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
@@ -237,7 +237,41 @@ function confirmarEstadoSuscripcion(n,accion){
  document.body.append(dialog);dialog.querySelector('.va-cancel').focus();
 }
 
-function showPage(key){key=pages[key]?key:'inicio';$('pageTitle').textContent=pages[key];document.querySelectorAll('.nav').forEach(b=>b.classList.toggle('active',b.dataset.page===key));if(key==='inicio'){cargarInicio();return;}if(key==='negocios'){cargarNegocios();return;}if(key==='suscripciones'){cargarSuscripciones();return;}if(key==='pagos'){cargarPagos();return;}
+
+// PASO 8: planes por sistema. Acceso y escrituras solo mediante RPC de administrador.
+let planesActuales=[];
+const formatoPrecio=new Intl.NumberFormat('es-AR',{style:'currency',currency:'ARS',maximumFractionDigits:2});
+async function cargarPlanes(){
+ $('pageContent').innerHTML='<section class="panel"><p>Cargando sistemas y planes…</p></section>';
+ const {data,error}=await client.rpc('vicora_admin_listar_planes');
+ if(error){$('pageContent').innerHTML=`<section class="panel"><h3>No se pudieron cargar los planes</h3><p>${escapeHtml(error.message)}</p><p>Ejecutá primero el SQL del Paso 8.</p><button class="va-refresh" id="retryPlanes">Reintentar</button></section>`;$('retryPlanes').addEventListener('click',cargarPlanes);return;}
+ const datos=data||{};planesActuales=Array.isArray(datos.planes)?datos.planes:[];
+ const sistemas=Array.isArray(datos.sistemas)?datos.sistemas:[];
+ $('pageContent').innerHTML=`<section class="va-business"><div class="va-business-head"><div><h3>Planes y precios</h3><p>Cada sistema tiene sus propios planes. Los cambios se guardan en Supabase.</p></div><button class="va-refresh" id="refreshPlanes">Actualizar</button></div><div class="va-admin-buttons"><button type="button" class="va-refresh" id="crearPlan">+ Nuevo plan</button></div><div class="va-table-scroll"><table class="va-table"><thead><tr><th>Sistema</th><th>Plan</th><th>Precio mensual</th><th>Prueba</th><th>Estado</th><th>Acciones</th></tr></thead><tbody id="rowsPlanes"></tbody></table></div><p class="va-sub-note">Modificar un precio no altera los pagos ya registrados. La tarifa publicada debe coincidir con la que comunicás a tus clientes.</p></section>`;
+ $('refreshPlanes').addEventListener('click',cargarPlanes);
+ $('crearPlan').addEventListener('click',()=>editarPlan(null,sistemas));
+ $('rowsPlanes').innerHTML=planesActuales.length?planesActuales.map(p=>`<tr><td>${escapeHtml(p.sistema)}</td><td><strong>${escapeHtml(p.nombre)}</strong><small>${escapeHtml(p.id_plan)}</small></td><td>${escapeHtml(formatoPrecio.format(Number(p.precio_mensual||0)))}</td><td>${escapeHtml(p.dias_prueba)} días</td><td>${etiquetaEstado(p.estado==='ACTIVO'?'ACTIVA':'SUSPENDIDA')}</td><td><button type="button" class="va-detail-btn" data-plan="${escapeHtml(p.id_plan)}">Editar</button></td></tr>`).join(''):'<tr><td colspan="6" class="va-empty">No hay planes registrados.</td></tr>';
+ $('rowsPlanes').querySelectorAll('[data-plan]').forEach(b=>b.addEventListener('click',()=>editarPlan(planesActuales.find(p=>p.id_plan===b.dataset.plan),sistemas)));
+}
+function editarPlan(plan,sistemas){
+ cerrarDialogos();
+ const esNuevo=!plan;
+ const dialog=document.createElement('div');dialog.className='va-overlay';
+ const opts=sistemas.map(s=>`<option value="${escapeHtml(s.id_sistema)}" ${s.id_sistema===plan?.id_sistema?'selected':''}>${escapeHtml(s.nombre)}</option>`).join('');
+ dialog.innerHTML=`<section class="va-dialog va-confirm" role="dialog" aria-modal="true" aria-label="${esNuevo?'Nuevo plan':'Editar plan'}"><header><h3>${esNuevo?'Crear plan':'Editar plan'}</h3><button type="button" class="va-close">×</button></header><div class="va-pay-form"><label>Sistema<select id="pSistema" ${esNuevo?'':'disabled'}>${opts}</select></label><label>Nombre del plan<input id="pNombre" maxlength="80" value="${escapeHtml(plan?.nombre||'')}" placeholder="Ej.: Plan mensual"></label><label>Precio mensual (ARS)<input id="pPrecio" type="number" min="0" step="0.01" value="${escapeHtml(plan?.precio_mensual??20000)}"></label><label>Días de prueba gratuita<input id="pPrueba" type="number" min="0" max="365" step="1" value="${escapeHtml(plan?.dias_prueba??7)}"></label><label>Estado<select id="pEstado"><option value="ACTIVO" ${plan?.estado!=='INACTIVO'?'selected':''}>Activo</option><option value="INACTIVO" ${plan?.estado==='INACTIVO'?'selected':''}>Inactivo</option></select></label></div><p class="va-admin-help">Período de facturación: mensual. Los planes inactivos se conservan para mantener el historial.</p><p id="pError" class="va-trial-error" role="alert"></p><div class="va-admin-buttons"><button type="button" class="va-cancel">Cancelar</button><button type="button" class="va-accept">Guardar plan</button></div></section>`;
+ dialog.querySelector('.va-close').onclick=()=>dialog.remove();dialog.querySelector('.va-cancel').onclick=()=>dialog.remove();dialog.addEventListener('click',e=>{if(e.target===dialog)dialog.remove()});
+ dialog.querySelector('.va-accept').addEventListener('click',async()=>{
+  const nombre=dialog.querySelector('#pNombre').value.trim(),precio=Number(dialog.querySelector('#pPrecio').value),dias=Number(dialog.querySelector('#pPrueba').value),estado=dialog.querySelector('#pEstado').value,sistema=dialog.querySelector('#pSistema').value;
+  const err=dialog.querySelector('#pError');
+  if(!sistema||!nombre||nombre.length>80||!Number.isFinite(precio)||precio<0||precio>999999999||!Number.isInteger(dias)||dias<0||dias>365){err.textContent='Revisá el sistema, el nombre, el precio y los días de prueba.';return;}
+  const b=dialog.querySelector('.va-accept');b.disabled=true;b.textContent='Guardando…';err.textContent='';
+  try{const {data,error}=await client.rpc('vicora_admin_guardar_plan',{p_id_plan:plan?.id_plan||null,p_id_sistema:sistema,p_nombre:nombre,p_precio_mensual:precio,p_dias_prueba:dias,p_estado:estado});if(error)throw error;if(data?.ok!==true)throw Error('Supabase no confirmó la operación.');dialog.remove();await cargarPlanes();mostrarAviso('Plan guardado correctamente.');}
+  catch(e){err.textContent=e.message||String(e);b.disabled=false;b.textContent='Guardar plan';}
+ });
+ document.body.append(dialog);dialog.querySelector('#pNombre').focus();
+}
+
+function showPage(key){key=pages[key]?key:'inicio';$('pageTitle').textContent=pages[key];document.querySelectorAll('.nav').forEach(b=>b.classList.toggle('active',b.dataset.page===key));if(key==='inicio'){cargarInicio();return;}if(key==='negocios'){cargarNegocios();return;}if(key==='suscripciones'){cargarSuscripciones();return;}if(key==='pagos'){cargarPagos();return;}if(key==='planes'){cargarPlanes();return;}
  const descriptions={negocios:'Próxima etapa: listado de negocios y suscripciones, con operaciones administrativas seguras.',suscripciones:'Próxima etapa: planes, precios, renovaciones y suspensiones.',pagos:'Próxima etapa: historial detallado de pagos y filtros.'};
  $('pageContent').innerHTML=`<section class="panel"><span class="status">Acceso verificado</span><h3>${escapeHtml(pages[key])}</h3><p>${escapeHtml(descriptions[key])}</p></section>`;
 }

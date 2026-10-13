@@ -130,3 +130,6 @@
  .va-admin-buttons button{min-height:43px}
 }
 @media(max-width:380px){.topbar .private-access{display:none}.va-metric{min-height:125px;padding:13px 11px}.sidebar .nav{font-size:10px}}
+
+/* Paso 8: quinta opción del menú inferior */
+@media(max-width:760px){.sidebar{grid-template-columns:repeat(5,minmax(0,1fr))!important}.sidebar .nav{font-size:10px}.sidebar .nav .nav-icon{font-size:21px}}
