@@ -185,10 +185,23 @@ function pintarVencimientos(){
   const texto=r.dias<0?`Hace ${Math.abs(r.dias)} día${Math.abs(r.dias)===1?'':'s'}`:
    r.dias===0?'Hoy':r.dias===1?'Mañana':`En ${r.dias} días`;
   const tel=telefonoWhatsapp(r.n.telefono);
-  const mensaje=`Hola, ${r.n.responsable||r.n.nombre}. Te contactamos de VICORA por la suscripción de ${r.n.nombre}. `+
-   (r.dias<0?`Registramos un vencimiento el ${fechaAR(r.s.vencimiento)}.`:
-   `Tu próximo vencimiento es el ${fechaAR(r.s.vencimiento)}.`)+
-   ' Si ya realizaste el pago, por favor avisános. ¿Querés que te indiquemos cómo renovar?';
+  const saludo=`Hola, ${r.n.responsable||r.n.nombre}. Te contactamos de VICORA por la suscripción de ${r.n.nombre}. `;
+  const fecha=fechaAR(r.s.vencimiento);
+  let mensaje;
+  if(r.dias<0){
+   mensaje=saludo+`Tu suscripción venció el ${fecha}. Para regularizar el servicio, ¿querés que te enviemos los datos para renovar?`;
+  }else if(r.dias===0){
+   mensaje=saludo+`Tu suscripción vence hoy (${fecha}). ¿Querés que te indiquemos cómo renovarla para continuar con el servicio?`;
+  }else if(r.dias===1){
+   mensaje=saludo+`Te recordamos que tu suscripción vence mañana, ${fecha}. ¿Necesitás los datos para realizar la renovación?`;
+  }else if(r.dias<=3){
+   mensaje=saludo+`Tu suscripción vence en ${r.dias} días, el ${fecha}. Te avisamos con anticipación para que puedas organizar la renovación. ¿Querés que te enviemos los datos de pago?`;
+  }else if(r.dias<=7){
+   mensaje=saludo+`Te recordamos que tu suscripción vence el ${fecha}, dentro de ${r.dias} días. ¿Querés recibir la información para renovarla?`;
+  }else{
+   mensaje=saludo+`Tu próximo vencimiento está previsto para el ${fecha}. Si tenés alguna consulta sobre tu suscripción o la renovación, estamos a disposición.`;
+  }
+  mensaje+=' Si ya realizaste el pago, por favor avisános.';
   const link=tel?`https://wa.me/${tel}?text=${encodeURIComponent(mensaje)}`:'';
   return `<tr><td><strong>${escapeHtml(r.n.nombre)}</strong><small>${escapeHtml(r.n.id_negocio)}</small></td>`+
    `<td>${escapeHtml(r.n.responsable||'—')}</td><td>${fechaAR(r.s.vencimiento)}</td>`+
