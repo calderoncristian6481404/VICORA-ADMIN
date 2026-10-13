@@ -148,10 +148,10 @@ function pintarVencimientos(){
   `<div class="va-sub-stat"><span>Próximos 7 días</span><strong>${cantidad('PROXIMOS')}</strong></div>`+
   `<div class="va-sub-stat"><span>Vencen hoy</span><strong>${cantidad('HOY')}</strong></div>`+
   `<div class="va-sub-stat"><span>Vencidos</span><strong>${cantidad('VENCIDOS')}</strong></div>`;
- const filtrados=registros.filter(r=>r.grupo!=='OTROS'&&(filtro==='TODOS'||r.grupo===filtro)&&
+ const filtrados=registros.filter(r=>r.dias!==null&&(filtro==='TODOS'||r.grupo===filtro)&&
   [r.n.nombre,r.n.id_negocio,r.n.responsable,r.n.email,r.n.telefono].some(v=>String(v||'').toLocaleLowerCase('es').includes(busqueda)))
   .sort((a,b)=>(a.dias??999999)-(b.dias??999999));
- $('conteoVencimientos').textContent=`Mostrando ${filtrados.length} negocios con vencimiento próximo o vencido`;
+ $('conteoVencimientos').textContent=`Mostrando ${filtrados.length} de ${registros.filter(r=>r.dias!==null).length} suscripciones con fecha de vencimiento`;
  tabla.innerHTML=filtrados.length?filtrados.map(r=>{
   const texto=r.dias<0?`Hace ${Math.abs(r.dias)} día${Math.abs(r.dias)===1?'':'s'}`:
    r.dias===0?'Hoy':r.dias===1?'Mañana':`En ${r.dias} días`;
@@ -167,7 +167,7 @@ function pintarVencimientos(){
    (link?`<a class="va-detail-btn" href="${escapeHtml(link)}" target="_blank" rel="noopener noreferrer">WhatsApp</a>`:
    '<span title="Falta un teléfono válido">Sin teléfono</span>')+
    `</td></tr>`;
- }).join(''):'<tr><td colspan="6" class="va-empty">No hay vencimientos para este filtro.</td></tr>';
+ }).join(''):'<tr><td colspan="6" class="va-empty">No hay suscripciones con fecha para este filtro.</td></tr>';
 }
 
 // PASO 5: vista de suscripciones. Solo lectura; reutiliza el RPC seguro existente.
@@ -194,7 +194,7 @@ async function cargarSuscripciones(){
  $('pageContent').innerHTML=`<section class="va-business"><div class="va-business-head"><div><h3>Suscripciones</h3><p>Estados y vencimientos consultados en Supabase.</p></div><button type="button" class="va-refresh" id="actualizarSuscripciones">Actualizar</button></div>
  <div class="va-business-head"><div><h3>Control de vencimientos</h3><p>Vencimientos reales según Supabase, con fecha de Argentina. Los contactos por WhatsApp se abren sin enviar mensajes automáticamente.</p></div></div>
   <div id="resumenVencimientos" class="va-sub-summary"></div>
-  <div class="va-sub-filters"><input id="buscarVencimientos" type="search" placeholder="Buscar negocio o responsable…" aria-label="Buscar vencimientos"><select id="filtroVencimientos" aria-label="Filtrar vencimientos"><option value="TODOS">Todos los vencimientos</option><option value="PROXIMOS">Próximos 7 días</option><option value="HOY">Vencen hoy</option><option value="VENCIDOS">Vencidos</option></select></div>
+  <div class="va-sub-filters"><input id="buscarVencimientos" type="search" placeholder="Buscar negocio o responsable…" aria-label="Buscar vencimientos"><select id="filtroVencimientos" aria-label="Filtrar vencimientos"><option value="TODOS">Todos los vencimientos (incluye vigentes)</option><option value="PROXIMOS">Próximos 7 días</option><option value="HOY">Vencen hoy</option><option value="VENCIDOS">Vencidos</option></select></div>
   <p id="conteoVencimientos" class="va-count"></p>
   <div class="va-table-scroll"><table class="va-table"><thead><tr><th>Negocio</th><th>Responsable</th><th>Fecha</th><th>Restan</th><th>Estado</th><th>Contacto</th></tr></thead><tbody id="tablaVencimientos"></tbody></table></div>
   <hr style="margin:28px 0;border:0;border-top:1px solid #e5e7eb">
