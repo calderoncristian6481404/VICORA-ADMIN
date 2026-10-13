@@ -143,10 +143,10 @@ function pedirPagoManual(n){
  const dialog=document.createElement('div');dialog.className='va-overlay';
  dialog.innerHTML=`<section class="va-dialog va-confirm" role="dialog" aria-modal="true" aria-label="Registrar pago manual"><header><h3>Registrar pago manual</h3><button class="va-close" type="button" aria-label="Cerrar">×</button></header>
  <p class="va-admin-intro">Negocio: <strong>${escapeHtml(n.nombre)}</strong></p>
- <p class="va-admin-help">Esta operación registra un pago real y renueva un mes. Verificá el importe y la referencia antes de confirmar.</p>
+ <p class="va-admin-help">Esta operación registra un pago real y renueva un mes. Verificá el importe antes de confirmar. VICORA generará automáticamente una referencia única.</p>
  <div class="va-pay-form"><label>Importe en pesos (ARS)<input id="vaPayAmount" type="number" min="0.01" step="0.01" required placeholder="Ej.: 15000"></label>
  <label>Medio de pago<select id="vaPayMethod"><option value="TRANSFERENCIA">Transferencia</option><option value="EFECTIVO">Efectivo</option><option value="DEPOSITO">Depósito</option><option value="TARJETA">Tarjeta</option><option value="OTRO">Otro</option></select></label>
- <label>Referencia única del comprobante<input id="vaPayReference" type="text" maxlength="120" minlength="4" required placeholder="Ej.: TRANSF-2026-001"></label></div>
+ <label>Número de comprobante bancario (opcional)<input id="vaPayReference" type="text" maxlength="120" placeholder="Ej.: 00213456"></label><p class="va-admin-help">Referencia VIC-PAG: se genera automáticamente al confirmar y aparece en el historial.</p></div>
  <p id="vaPayError" class="va-trial-error" role="alert"></p><p id="vaPayConfirm" class="va-inline-confirm" hidden></p><div class="va-admin-buttons"><button type="button" class="va-cancel">Cancelar</button><button type="button" class="va-accept">Confirmar pago y renovar</button></div></section>`;
  dialog.querySelector('.va-close').addEventListener('click',()=>dialog.remove());
  dialog.querySelector('.va-cancel').addEventListener('click',()=>dialog.remove());
@@ -161,10 +161,9 @@ function pedirPagoManual(n){
   const referencia=dialog.querySelector('#vaPayReference').value.trim();
   const errorEl=dialog.querySelector('#vaPayError');
   if(!Number.isFinite(importe)||importe<=0||importe>999999999||!/^\d+(\.\d{1,2})?$/.test(String(importe))){errorEl.textContent='Ingresá un importe válido mayor que cero, con hasta 2 decimales.';return;}
-  if(referencia.length<4){errorEl.textContent='Ingresá una referencia de al menos 4 caracteres.';return;}
    const aviso=dialog.querySelector('#vaPayConfirm');
    if(aviso.hidden){
-    aviso.textContent=`Confirmá el pago de $ ${importe.toLocaleString('es-AR')} para ${n.nombre}. Referencia: ${referencia}. Se renovará por un mes. Volvé a presionar para confirmar.`;
+    aviso.textContent=`Confirmá el pago de $ ${importe.toLocaleString('es-AR')} para ${n.nombre}. Comprobante: ${referencia||"sin comprobante"}. VICORA generará la referencia automáticamente. Se renovará por un mes. Volvé a presionar para confirmar.`;
     aviso.hidden=false;
     dialog.querySelector('.va-accept').textContent='Sí, registrar el pago';
     return;
@@ -180,7 +179,7 @@ function pedirPagoManual(n){
    const pagina=document.querySelector('.nav.active')?.dataset.page;
    if(pagina==='suscripciones')await cargarSuscripciones();else if(pagina==='pagos')await cargarPagos();else await cargarNegocios();
    const notice=document.createElement('div');notice.className='va-success-message';notice.setAttribute('role','status');
-   notice.textContent=`Pago ${data.id_pago} registrado. Nuevo vencimiento: ${fechaAR(data.proximo_vencimiento)}.`;
+   notice.textContent=`Pago ${data.referencia||data.id_pago} registrado. Nuevo vencimiento: ${fechaAR(data.proximo_vencimiento)}.`;
    $('pageContent').prepend(notice);
   }catch(err){errorEl.textContent=err.message||String(err);btn.disabled=false;btn.textContent='Confirmar pago y renovar';}
  });
@@ -192,9 +191,9 @@ async function cargarPagos(){
  const {data,error}=await client.rpc('vicora_admin_historial_pagos');
  if(error){$('pageContent').innerHTML=`<section class="panel"><h3>No se pudo cargar Pagos</h3><p>${escapeHtml(error.message)}</p><p>Primero ejecutá el SQL del Paso 6 en Supabase.</p><button class="va-refresh" id="retryPagos">Reintentar</button></section>`;$('retryPagos').addEventListener('click',cargarPagos);return;}
  const pagos=Array.isArray(data)?data:[];
- $('pageContent').innerHTML=`<section class="va-business"><div class="va-business-head"><div><h3>Historial de pagos</h3><p>Pagos reales registrados en Supabase.</p></div><button class="va-refresh" id="refreshPagos">Actualizar</button></div><input id="searchPagos" type="search" placeholder="Buscar negocio, referencia o medio…" aria-label="Buscar pagos"><p class="va-count" id="countPagos"></p><div class="va-table-scroll"><table class="va-table"><thead><tr><th>Fecha</th><th>Negocio</th><th>Importe</th><th>Medio</th><th>Estado</th><th>Referencia</th><th>Período</th></tr></thead><tbody id="rowsPagos"></tbody></table></div></section>`;
+ $('pageContent').innerHTML=`<section class="va-business"><div class="va-business-head"><div><h3>Historial de pagos</h3><p>Pagos reales registrados en Supabase.</p></div><button class="va-refresh" id="refreshPagos">Actualizar</button></div><input id="searchPagos" type="search" placeholder="Buscar negocio, referencia o medio…" aria-label="Buscar pagos"><p class="va-count" id="countPagos"></p><div class="va-table-scroll"><table class="va-table"><thead><tr><th>Fecha</th><th>Negocio</th><th>Importe</th><th>Medio</th><th>Estado</th><th>Referencia VICORA</th><th>Período</th></tr></thead><tbody id="rowsPagos"></tbody></table></div></section>`;
  const fmt=new Intl.NumberFormat('es-AR',{style:'currency',currency:'ARS'});
- const pintar=()=>{const q=$('searchPagos').value.trim().toLowerCase();const rows=pagos.filter(p=>[p.negocio,p.id_negocio,p.referencia,p.metodo,p.estado].some(v=>String(v||'').toLowerCase().includes(q)));
+ const pintar=()=>{const q=$('searchPagos').value.trim().toLowerCase();const rows=pagos.filter(p=>[p.negocio,p.id_negocio,p.referencia,p.comprobante_bancario,p.metodo,p.estado].some(v=>String(v||'').toLowerCase().includes(q)));
  $('countPagos').textContent=`Mostrando ${rows.length} de ${pagos.length} pagos`;
  $('rowsPagos').innerHTML=rows.length?rows.map(p=>`<tr><td>${fechaAR(p.fecha_pago)}</td><td>${escapeHtml(p.negocio||p.id_negocio)}</td><td>${escapeHtml(fmt.format(Number(p.importe||0)))}</td><td>${escapeHtml(p.metodo)}</td><td>${etiquetaEstado(p.estado)}</td><td>${escapeHtml(p.referencia||'—')}</td><td>${fechaAR(p.periodo_desde)} a ${fechaAR(p.periodo_hasta)}</td></tr>`).join(''):'<tr><td colspan="7" class="va-empty">Todavía no hay pagos para mostrar.</td></tr>';};
  $('searchPagos').addEventListener('input',pintar);$('refreshPagos').addEventListener('click',cargarPagos);pintar();
