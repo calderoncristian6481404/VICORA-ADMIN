@@ -363,19 +363,69 @@ function pedirPagoManual(n){
  document.body.append(dialog);dialog.querySelector('#vaPayAmount').focus();
 }
 
+// PASO 11: control de cobranzas (lectura, sin crear deudas ni modificar pagos).
 async function cargarPagos(){
- $('pageContent').innerHTML='<section class="panel"><p>Cargando historial de pagos…</p></section>';
- const {data,error}=await client.rpc('vicora_admin_historial_pagos');
- if(error){$('pageContent').innerHTML=`<section class="panel"><h3>No se pudo cargar Pagos</h3><p>${escapeHtml(error.message)}</p><p>Primero ejecutá el SQL del Paso 6 en Supabase.</p><button class="va-refresh" id="retryPagos">Reintentar</button></section>`;$('retryPagos').addEventListener('click',cargarPagos);return;}
- const pagos=Array.isArray(data)?data:[];
- $('pageContent').innerHTML=`<section class="va-business"><div class="va-business-head"><div><h3>Historial de pagos</h3><p>Pagos reales registrados en Supabase.</p></div><button class="va-refresh" id="refreshPagos">Actualizar</button></div><input id="searchPagos" type="search" placeholder="Buscar negocio, referencia o medio…" aria-label="Buscar pagos"><p class="va-count" id="countPagos"></p><div class="va-table-scroll"><table class="va-table"><thead><tr><th>Fecha</th><th>Negocio</th><th>Importe</th><th>Medio</th><th>Estado</th><th>Referencia VICORA</th><th>Período</th></tr></thead><tbody id="rowsPagos"></tbody></table></div></section>`;
+ $('pageContent').innerHTML='<section class="panel"><p>Cargando control de cobranzas e historial…</p></section>';
+ const [pagosR, negociosR, resumenR]=await Promise.all([
+  client.rpc('vicora_admin_historial_pagos'),
+  client.rpc('vicora_admin_negocios'),
+  client.rpc('vicora_admin_resumen')
+ ]);
+ if(pagosR.error){
+  $('pageContent').innerHTML=`<section class="panel"><h3>No se pudo cargar Pagos</h3><p>${escapeHtml(pagosR.error.message)}</p><button class="va-refresh" id="retryPagos">Reintentar</button></section>`;
+  $('retryPagos').addEventListener('click',cargarPagos);return;
+ }
+ const pagos=Array.isArray(pagosR.data)?pagosR.data:[];
  const fmt=new Intl.NumberFormat('es-AR',{style:'currency',currency:'ARS'});
- const pintar=()=>{const q=$('searchPagos').value.trim().toLowerCase();const rows=pagos.filter(p=>[p.negocio,p.id_negocio,p.referencia,p.comprobante_bancario,p.metodo,p.estado].some(v=>String(v||'').toLowerCase().includes(q)));
- $('countPagos').textContent=`Mostrando ${rows.length} de ${pagos.length} pagos`;
- $('rowsPagos').innerHTML=rows.length?rows.map(p=>`<tr><td>${fechaAR(p.fecha_pago)}</td><td>${escapeHtml(p.negocio||p.id_negocio)}</td><td>${escapeHtml(fmt.format(Number(p.importe||0)))}</td><td>${escapeHtml(p.metodo)}</td><td>${etiquetaEstado(p.estado)}</td><td>${escapeHtml(p.referencia||'—')}</td><td>${fechaAR(p.periodo_desde)} a ${fechaAR(p.periodo_hasta)}</td></tr>`).join(''):'<tr><td colspan="7" class="va-empty">Todavía no hay pagos para mostrar.</td></tr>';};
- $('searchPagos').addEventListener('input',pintar);$('refreshPagos').addEventListener('click',cargarPagos);pintar();
+ const resumen=resumenR.error?null:(resumenR.data||{});
+ const negocios=negociosR.error?[]:(Array.isArray(negociosR.data)?negociosR.data:[]);
+ const vencidos=negocios.filter(n=>estadoNegocio(n).toUpperCase()==='VENCIDA');
+ const activos=negocios.filter(n=>estadoNegocio(n).toUpperCase()==='ACTIVA');
+ const pruebas=negocios.filter(n=>estadoNegocio(n).toUpperCase()==='PRUEBA');
+ const suspendidos=negocios.filter(n=>estadoNegocio(n).toUpperCase()==='SUSPENDIDA');
+ const datosMes=resumen?`${escapeHtml(fmt.format(Number(resumen.importe_mes||0)))}`:'No disponible';
+ const pagosMes=resumen?escapeHtml(resumen.pagos_mes??'—'):'—';
+ $('pageContent').innerHTML=`<section class="va-business">
+ <div class="va-business-head"><div><h3>Control de cobranzas</h3><p>Resumen de pagos confirmados y suscripciones. Las vencidas requieren revisión: no representan necesariamente una deuda exigible.</p></div><button class="va-refresh" id="refreshPagos">Actualizar</button></div>
+ <div class="va-metrics">
+ ${metric('Ingresos registrados del mes',datosMes,'Pagos acreditados / confirmados')}
+ ${metric('Pagos confirmados del mes',pagosMes,'Según resumen de Supabase')}
+ ${metric('Suscripciones activas',activos.length,'Con vigencia')}
+ ${metric('Suscripciones vencidas',vencidos.length,'Revisar cobranza')}
+ ${metric('Pruebas gratuitas',pruebas.length,'No contabilizar como deuda')}
+ ${metric('Suspendidas',suspendidos.length,'Revisión administrativa')}
+ </div>
+ ${negociosR.error?`<p role="alert">No se pudo consultar el estado de los negocios: ${escapeHtml(negociosR.error.message)}</p>`:''}
+ ${resumenR.error?`<p role="alert">No se pudo consultar el resumen mensual: ${escapeHtml(resumenR.error.message)}</p>`:''}
+ <section class="panel"><h3>Seguimiento de suscripciones</h3><p>Seleccioná un estado para revisar los negocios. No se generan cargos automáticamente.</p>
+ <div class="va-sub-filters"><select id="filtroCobranza" aria-label="Filtrar cobranzas"><option value="VENCIDA">Vencidas (revisar)</option><option value="ACTIVA">Activas</option><option value="PRUEBA">En prueba</option><option value="SUSPENDIDA">Suspendidas</option><option value="TODAS">Todas</option></select><input id="buscarCobranza" type="search" placeholder="Buscar negocio o responsable…" aria-label="Buscar negocio"></div>
+ <p id="conteoCobranza" class="va-count"></p><div class="va-table-scroll"><table class="va-table"><thead><tr><th>Negocio</th><th>Responsable</th><th>Estado</th><th>Vencimiento</th><th>Acción</th></tr></thead><tbody id="filasCobranza"></tbody></table></div></section>
+ <section class="panel"><div class="va-business-head"><div><h3>Historial de pagos</h3><p>Pagos reales registrados en Supabase.</p></div></div>
+ <input id="searchPagos" type="search" placeholder="Buscar negocio, referencia o medio…" aria-label="Buscar pagos"><p class="va-count" id="countPagos"></p>
+ <div class="va-table-scroll"><table class="va-table"><thead><tr><th>Fecha</th><th>Negocio</th><th>Importe</th><th>Medio</th><th>Estado</th><th>Referencia VICORA</th><th>Período</th></tr></thead><tbody id="rowsPagos"></tbody></table></div></section></section>`;
+ $('refreshPagos').addEventListener('click',cargarPagos);
+ const pintarCobranza=()=>{
+  const filtro=$('filtroCobranza').value;
+  const q=$('buscarCobranza').value.trim().toLocaleLowerCase('es');
+  const rows=negocios.filter(n=>(filtro==='TODAS'||estadoNegocio(n).toUpperCase()===filtro)&&
+   [n.nombre,n.id_negocio,n.responsable,n.email].some(v=>String(v||'').toLocaleLowerCase('es').includes(q)));
+  $('conteoCobranza').textContent=`Mostrando ${rows.length} de ${negocios.length} negocios`;
+  $('filasCobranza').innerHTML=rows.length?rows.map(n=>`<tr><td><strong>${escapeHtml(n.nombre)}</strong><small>${escapeHtml(n.id_negocio)}</small></td><td>${escapeHtml(n.responsable||'—')}</td><td>${etiquetaEstado(estadoNegocio(n))}</td><td>${fechaAR(n.suscripcion?.vencimiento)}</td><td><button type="button" class="va-detail-btn" data-cobranza-negocio="${escapeHtml(n.id_negocio)}">Ver ficha</button></td></tr>`).join(''):'<tr><td colspan="5" class="va-empty">No hay negocios para este filtro.</td></tr>';
+  $('filasCobranza').querySelectorAll('[data-cobranza-negocio]').forEach(b=>b.addEventListener('click',()=>{
+   negociosActuales=negocios;verFichaNegocio(b.dataset.cobranzaNegocio);
+  }));
+ };
+ const pintarPagos=()=>{
+  const q=$('searchPagos').value.trim().toLowerCase();
+  const rows=pagos.filter(p=>[p.negocio,p.id_negocio,p.referencia,p.comprobante_bancario,p.metodo,p.estado].some(v=>String(v||'').toLowerCase().includes(q)));
+  $('countPagos').textContent=`Mostrando ${rows.length} de ${pagos.length} pagos`;
+  $('rowsPagos').innerHTML=rows.length?rows.map(p=>`<tr><td>${fechaAR(p.fecha_pago)}</td><td>${escapeHtml(p.negocio||p.id_negocio)}</td><td>${escapeHtml(fmt.format(Number(p.importe||0)))}</td><td>${escapeHtml(p.metodo)}</td><td>${etiquetaEstado(p.estado)}</td><td>${escapeHtml(p.referencia||'—')}</td><td>${fechaAR(p.periodo_desde)} a ${fechaAR(p.periodo_hasta)}</td></tr>`).join(''):'<tr><td colspan="7" class="va-empty">Todavía no hay pagos para mostrar.</td></tr>';
+ };
+ $('filtroCobranza').addEventListener('change',pintarCobranza);
+ $('buscarCobranza').addEventListener('input',pintarCobranza);
+ $('searchPagos').addEventListener('input',pintarPagos);
+ pintarCobranza();pintarPagos();
 }
-
 
 // PASO 7: notificaciones modernas y acciones administrativas protegidas.
 function mostrarAviso(mensaje,tipo='ok'){
