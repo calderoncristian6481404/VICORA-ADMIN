@@ -103,6 +103,73 @@ async function cargarNegocios(){
  $('busquedaNegocios').addEventListener('input',pintarNegocios);$('actualizarNegocios').addEventListener('click',cargarNegocios);pintarNegocios();
 }
 
+
+// PASO 9: tablero de vencimientos (solo lectura, sin modificar suscripciones).
+// Reutiliza vicora_admin_negocios y su vencimiento calculado en Supabase.
+function fechaHoyArgentina(){
+ const partes=new Intl.DateTimeFormat('en-US',{timeZone:'America/Argentina/Buenos_Aires',year:'numeric',month:'2-digit',day:'2-digit'}).formatToParts(new Date());
+ const p=Object.fromEntries(partes.map(x=>[x.type,x.value]));
+ return `${p.year}-${p.month}-${p.day}`;
+}
+function diasEntreFechas(fecha,hoy){
+ const f=String(fecha||'').slice(0,10);
+ if(!/^\d{4}-\d{2}-\d{2}$/.test(f))return null;
+ const a=Date.parse(f+'T00:00:00Z'),b=Date.parse(hoy+'T00:00:00Z');
+ return Number.isFinite(a)?Math.round((a-b)/86400000):null;
+}
+function telefonoWhatsapp(telefono){
+ let t=String(telefono||'').replace(/\D/g,'');
+ if(t.startsWith('00'))t=t.slice(2);
+ // Números argentinos: convertir formato nacional a internacional móvil.
+ if(t.startsWith('0'))t=t.slice(1);
+ if(t.startsWith('54')&&!t.startsWith('549'))t='549'+t.slice(2).replace(/^15/,'');
+ if(!t.startsWith('54')&&t.length>=9&&t.length<=11)t='549'+t.replace(/^15/,'');
+ return t.length>=11&&t.length<=15?t:'';
+}
+function pintarVencimientos(){
+ const tabla=$('tablaVencimientos');if(!tabla)return;
+ const hoy=fechaHoyArgentina();
+ const filtro=$('filtroVencimientos')?.value||'TODOS';
+ const busqueda=($('buscarVencimientos')?.value||'').trim().toLocaleLowerCase('es');
+ const registros=suscripcionesActuales.map(n=>{
+  const s=n.suscripcion||{};
+  const estado=estadoNegocio(n).toUpperCase();
+  const dias=diasEntreFechas(s.vencimiento,hoy);
+  let grupo='OTROS';
+  if(estado!=='SUSPENDIDA'&&estado!=='PENDIENTE'&&dias!==null){
+   if(dias<0)grupo='VENCIDOS';
+   else if(dias===0)grupo='HOY';
+   else if(dias<=7)grupo='PROXIMOS';
+  }
+  return {n,s,estado,dias,grupo};
+ });
+ const cantidad=g=>registros.filter(r=>r.grupo===g).length;
+ $('resumenVencimientos').innerHTML=
+  `<div class="va-sub-stat"><span>Próximos 7 días</span><strong>${cantidad('PROXIMOS')}</strong></div>`+
+  `<div class="va-sub-stat"><span>Vencen hoy</span><strong>${cantidad('HOY')}</strong></div>`+
+  `<div class="va-sub-stat"><span>Vencidos</span><strong>${cantidad('VENCIDOS')}</strong></div>`;
+ const filtrados=registros.filter(r=>r.grupo!=='OTROS'&&(filtro==='TODOS'||r.grupo===filtro)&&
+  [r.n.nombre,r.n.id_negocio,r.n.responsable,r.n.email,r.n.telefono].some(v=>String(v||'').toLocaleLowerCase('es').includes(busqueda)))
+  .sort((a,b)=>(a.dias??999999)-(b.dias??999999));
+ $('conteoVencimientos').textContent=`Mostrando ${filtrados.length} negocios con vencimiento próximo o vencido`;
+ tabla.innerHTML=filtrados.length?filtrados.map(r=>{
+  const texto=r.dias<0?`Hace ${Math.abs(r.dias)} día${Math.abs(r.dias)===1?'':'s'}`:
+   r.dias===0?'Hoy':r.dias===1?'Mañana':`En ${r.dias} días`;
+  const tel=telefonoWhatsapp(r.n.telefono);
+  const mensaje=`Hola, ${r.n.responsable||r.n.nombre}. Te contactamos de VICORA por la suscripción de ${r.n.nombre}. `+
+   (r.dias<0?`Registramos un vencimiento el ${fechaAR(r.s.vencimiento)}.`:
+   `Tu próximo vencimiento es el ${fechaAR(r.s.vencimiento)}.`)+
+   ' Si ya realizaste el pago, por favor avisános. ¿Querés que te indiquemos cómo renovar?';
+  const link=tel?`https://wa.me/${tel}?text=${encodeURIComponent(mensaje)}`:'';
+  return `<tr><td><strong>${escapeHtml(r.n.nombre)}</strong><small>${escapeHtml(r.n.id_negocio)}</small></td>`+
+   `<td>${escapeHtml(r.n.responsable||'—')}</td><td>${fechaAR(r.s.vencimiento)}</td>`+
+   `<td>${escapeHtml(texto)}</td><td>${etiquetaEstado(r.estado)}</td><td>`+
+   (link?`<a class="va-detail-btn" href="${escapeHtml(link)}" target="_blank" rel="noopener noreferrer">WhatsApp</a>`:
+   '<span title="Falta un teléfono válido">Sin teléfono</span>')+
+   `</td></tr>`;
+ }).join(''):'<tr><td colspan="6" class="va-empty">No hay vencimientos para este filtro.</td></tr>';
+}
+
 // PASO 5: vista de suscripciones. Solo lectura; reutiliza el RPC seguro existente.
 let suscripcionesActuales=[];
 function pintarSuscripciones(){
@@ -125,13 +192,22 @@ async function cargarSuscripciones(){
  const estados=['ACTIVA','PRUEBA','VENCIDA','SUSPENDIDA','PENDIENTE'];
  const counts=Object.fromEntries(estados.map(e=>[e,suscripcionesActuales.filter(n=>estadoNegocio(n).toUpperCase()===e).length]));
  $('pageContent').innerHTML=`<section class="va-business"><div class="va-business-head"><div><h3>Suscripciones</h3><p>Estados y vencimientos consultados en Supabase.</p></div><button type="button" class="va-refresh" id="actualizarSuscripciones">Actualizar</button></div>
- <div class="va-sub-summary">${estados.map(e=>`<div class="va-sub-stat">${etiquetaEstado(e)}<strong>${counts[e]}</strong></div>`).join('')}</div>
+ <div class="va-business-head"><div><h3>Control de vencimientos</h3><p>Vencimientos reales según Supabase, con fecha de Argentina. Los contactos por WhatsApp se abren sin enviar mensajes automáticamente.</p></div></div>
+  <div id="resumenVencimientos" class="va-sub-summary"></div>
+  <div class="va-sub-filters"><input id="buscarVencimientos" type="search" placeholder="Buscar negocio o responsable…" aria-label="Buscar vencimientos"><select id="filtroVencimientos" aria-label="Filtrar vencimientos"><option value="TODOS">Todos los vencimientos</option><option value="PROXIMOS">Próximos 7 días</option><option value="HOY">Vencen hoy</option><option value="VENCIDOS">Vencidos</option></select></div>
+  <p id="conteoVencimientos" class="va-count"></p>
+  <div class="va-table-scroll"><table class="va-table"><thead><tr><th>Negocio</th><th>Responsable</th><th>Fecha</th><th>Restan</th><th>Estado</th><th>Contacto</th></tr></thead><tbody id="tablaVencimientos"></tbody></table></div>
+  <hr style="margin:28px 0;border:0;border-top:1px solid #e5e7eb">
+  <div class="va-sub-summary">${estados.map(e=>`<div class="va-sub-stat">${etiquetaEstado(e)}<strong>${counts[e]}</strong></div>`).join('')}</div>
  <div class="va-sub-filters"><input id="busquedaSuscripciones" type="search" placeholder="Buscar negocio, plan, sistema o ID…" aria-label="Buscar suscripciones"><select id="filtroSuscripciones" aria-label="Filtrar estado"><option value="TODAS">Todos los estados</option>${estados.map(e=>`<option value="${e}">${e}</option>`).join('')}</select></div>
  <p id="conteoSuscripciones" class="va-count"></p><div class="va-table-scroll"><table class="va-table"><thead><tr><th>Negocio</th><th>Sistema</th><th>Plan</th><th>Estado</th><th>Vencimiento</th><th>Modalidad</th><th>Acciones</th></tr></thead><tbody id="tablaSuscripciones"></tbody></table></div>
  <p class="va-sub-note">Esta primera vista utiliza el listado administrativo existente, que devuelve una suscripción por negocio. Cuando agreguemos otros sistemas a VICORA, ampliaremos la consulta para mostrar todas las suscripciones de cada negocio. Pagos, renovaciones y suspensiones se incorporarán con funciones seguras específicas.</p></section>`;
  $('busquedaSuscripciones').addEventListener('input',pintarSuscripciones);
  $('filtroSuscripciones').addEventListener('change',pintarSuscripciones);
  $('actualizarSuscripciones').addEventListener('click',cargarSuscripciones);
+ $('buscarVencimientos').addEventListener('input',pintarVencimientos);
+ $('filtroVencimientos').addEventListener('change',pintarVencimientos);
+ pintarVencimientos();
  pintarSuscripciones();
 }
 
