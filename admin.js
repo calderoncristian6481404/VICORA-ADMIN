@@ -400,6 +400,7 @@ async function cargarPagos(){
  <section class="panel"><h3>Seguimiento de suscripciones</h3><p>Seleccioná un estado para revisar los negocios. No se generan cargos automáticamente.</p>
  <div class="va-sub-filters"><select id="filtroCobranza" aria-label="Filtrar cobranzas"><option value="VENCIDA">Vencidas (revisar)</option><option value="ACTIVA">Activas</option><option value="PRUEBA">En prueba</option><option value="SUSPENDIDA">Suspendidas</option><option value="TODAS">Todas</option></select><input id="buscarCobranza" type="search" placeholder="Buscar negocio o responsable…" aria-label="Buscar negocio"></div>
  <p id="conteoCobranza" class="va-count"></p><div class="va-table-scroll"><table class="va-table"><thead><tr><th>Negocio</th><th>Responsable</th><th>Estado</th><th>Vencimiento</th><th>Acción</th></tr></thead><tbody id="filasCobranza"></tbody></table></div></section>
+ <section class="panel" id="vaReportes"><p>Preparando reportes…</p></section>
  <section class="panel"><div class="va-business-head"><div><h3>Historial de pagos</h3><p>Pagos reales registrados en Supabase.</p></div></div>
  <input id="searchPagos" type="search" placeholder="Buscar negocio, referencia o medio…" aria-label="Buscar pagos"><p class="va-count" id="countPagos"></p>
  <div class="va-table-scroll"><table class="va-table"><thead><tr><th>Fecha</th><th>Negocio</th><th>Importe</th><th>Medio</th><th>Estado</th><th>Referencia VICORA</th><th>Período</th></tr></thead><tbody id="rowsPagos"></tbody></table></div></section></section>`;
@@ -425,6 +426,44 @@ async function cargarPagos(){
  $('buscarCobranza').addEventListener('input',pintarCobranza);
  $('searchPagos').addEventListener('input',pintarPagos);
  pintarCobranza();pintarPagos();
+ if(!pagosR.error&&!negociosR.error)pintarReportesVICORA(pagos,negocios);
+ else $('vaReportes').innerHTML='<p role="alert">No se pudieron cargar los reportes: falta información de Supabase.</p>';
+}
+
+
+// PASO 12: reportes de lectura sobre RPCs existentes.
+// Solo se cuentan pagos confirmados/acreditados; ANULADO queda excluido.
+function fechaReporteAR(fecha){
+ const s=String(fecha||'').slice(0,10);
+ return /^\d{4}-\d{2}-\d{2}$/.test(s)?s:null;
+}
+function pintarReportesVICORA(pagos,negocios){
+ const destino=$('vaReportes');if(!destino)return;
+ const hoy=fechaHoyArgentina();
+ const mesActual=hoy.slice(0,7);
+ const formato=new Intl.NumberFormat('es-AR',{style:'currency',currency:'ARS',maximumFractionDigits:0});
+ const confirmados=pagos.filter(p=>['CONFIRMADO','ACREDITADO','APROBADO'].includes(String(p.estado||'').toUpperCase()));
+ const meses=Array.from({length:6},(_,i)=>{
+  const [y,m]=mesActual.split('-').map(Number);
+  const fecha=new Date(Date.UTC(y,m-1-(5-i),1));
+  const clave=fecha.toISOString().slice(0,7);
+  return {clave,etiqueta:new Intl.DateTimeFormat('es-AR',{month:'short',year:'2-digit',timeZone:'UTC'}).format(fecha),importe:0,cantidad:0};
+ });
+ for(const p of confirmados){
+  const fecha=fechaReporteAR(p.fecha_pago);
+  const mes=meses.find(x=>x.clave===fecha?.slice(0,7));
+  if(mes){mes.importe+=Number(p.importe)||0;mes.cantidad++;}
+ }
+ const total=meses.reduce((s,m)=>s+m.importe,0);
+ const max=Math.max(...meses.map(m=>m.importe),1);
+ const estados=['ACTIVA','PRUEBA','VENCIDA','SUSPENDIDA','PENDIENTE'];
+ const conteo=Object.fromEntries(estados.map(e=>[e,negocios.filter(n=>estadoNegocio(n).toUpperCase()===e).length]));
+ const bars=meses.map(m=>`<div style="flex:1;min-width:56px;text-align:center"><strong style="display:block;font-size:12px;margin-bottom:6px">${escapeHtml(formato.format(m.importe))}</strong><div style="height:145px;display:flex;align-items:flex-end;justify-content:center;background:#f8fafc;border-radius:8px;padding:8px"><div title="${escapeHtml(m.etiqueta)}: ${escapeHtml(formato.format(m.importe))}" style="width:65%;height:${m.importe?Math.max(4,Math.round(m.importe/max*100)):2}%;background:#2563eb;border-radius:6px 6px 2px 2px"></div></div><small style="display:block;margin-top:7px">${escapeHtml(m.etiqueta)}</small><small>${m.cantidad} pago(s)</small></div>`).join('');
+ destino.innerHTML=`<div class="va-business-head"><div><h3>Reportes y estadísticas</h3><p>Últimos 6 meses. Solo pagos confirmados o acreditados, según el historial disponible. Los pagos anulados no se incluyen.</p></div></div>
+ <div class="va-metrics">${metric('Ingresos en 6 meses',formato.format(total),'Pagos confirmados registrados')}${metric('Pagos en 6 meses',meses.reduce((s,m)=>s+m.cantidad,0),'Operaciones registradas')}${metric('Negocios registrados',negocios.length,'Listado administrativo actual')}</div>
+ <h4 style="margin:16px 0 10px">Evolución mensual de ingresos</h4><div style="display:flex;gap:12px;overflow-x:auto;padding:10px 0 18px">${bars}</div>
+ <h4 style="margin:10px 0">Estado actual de suscripciones</h4><div class="va-sub-summary">${estados.map(e=>`<div class="va-sub-stat">${etiquetaEstado(e)}<strong>${conteo[e]}</strong></div>`).join('')}</div>
+ <p class="va-sub-note">Reportes basados en los registros que devuelve Supabase. No se estiman deudas ni ingresos futuros. Los importes históricos corresponden a la fecha de pago registrada.</p>`;
 }
 
 // PASO 7: notificaciones modernas y acciones administrativas protegidas.
