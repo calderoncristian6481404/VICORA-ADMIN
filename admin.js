@@ -61,8 +61,9 @@ function verFichaNegocio(id){
  const field=(label,value)=>`<div><small>${escapeHtml(label)}</small><strong>${escapeHtml(value??'—')}</strong></div>`;
  cerrarDialogos();
  const dialog=document.createElement('div');dialog.className='va-overlay';
- dialog.innerHTML=`<section class="va-dialog" role="dialog" aria-modal="true" aria-label="Ficha del negocio"><header><h3>${escapeHtml(n.nombre)}</h3><button type="button" class="va-close" aria-label="Cerrar">×</button></header><div class="va-ficha">${field('ID de negocio',n.id_negocio)}${field('Responsable',n.responsable)}${field('Correo electrónico',n.email)}${field('Teléfono',n.telefono)}${field('Estado del negocio',n.estado)}${field('Fecha de alta',fechaAR(n.creado_en))}${field('Sistema',s?.sistema)}${field('Plan',s?.plan)}<div><small>Estado de suscripción</small>${etiquetaEstado(estadoNegocio(n))}</div>${field('Modalidad de pago',s?.modalidad_pago)}${field('Vencimiento / fin de prueba',fechaAR(s?.vencimiento))}${field('ID de suscripción',s?.id_suscripcion)}</div><div class="va-admin-actions"><h4>Administrar prueba gratuita</h4><p>Los cambios se validan en Supabase y requieren confirmación.</p><div class="va-admin-buttons"><button type="button" id="vaStartTrial" ${puedeIniciarPrueba(s)?'':'disabled'}>Iniciar prueba</button><button type="button" id="vaExtendTrial" ${puedeExtenderPrueba(s)?'':'disabled'}>Extender prueba</button></div><p class="va-admin-help">${!s?'Este negocio no tiene una suscripción para administrar.':(!puedeIniciarPrueba(s)&&!puedeExtenderPrueba(s))?'Las acciones no están disponibles para esta suscripción según su estado e historial.':'Duración permitida: de 1 a 30 días. La fecha de fin es exclusiva.'}</p></div><div class="va-admin-actions"><h4>Pagos y renovación</h4><p>Un pago confirmado renueva la suscripción por un mes.</p><div class="va-admin-buttons"><button type="button" id="vaPayManual" ${s?.id_suscripcion && estadoNegocio(n)!=='SUSPENDIDA' ?'':'disabled'}>Registrar pago manual</button></div></div><div class="va-admin-actions"><h4>Estado de la suscripción</h4><p>La suspensión conserva los datos y las fechas de vencimiento. Reactivar no agrega días.</p><div class="va-admin-buttons"><button type="button" id="vaSuspend" ${s?.id_suscripcion && estadoNegocio(n)!=='SUSPENDIDA' && estadoNegocio(n)!=='PENDIENTE' ?'':'disabled'} class="va-danger-btn">Suspender</button><button type="button" id="vaReactivate" ${s?.id_suscripcion && estadoNegocio(n)==='SUSPENDIDA' ?'':'disabled'}>Reactivar</button></div><p class="va-admin-help">La suspensión administrativa no cancela cobros automáticos de Mercado Pago. El acceso comercial debe verificar la suscripción en el servidor.</p></div><footer>Las operaciones requieren permisos administrativos.</footer></section>`;
+ dialog.innerHTML=`<section class="va-dialog" role="dialog" aria-modal="true" aria-label="Ficha del negocio"><header><h3>${escapeHtml(n.nombre)}</h3><button type="button" class="va-close" aria-label="Cerrar">×</button></header><div class="va-ficha">${field('ID de negocio',n.id_negocio)}${field('Responsable',n.responsable)}${field('Correo electrónico',n.email)}${field('Teléfono',n.telefono)}${field('Estado del negocio',n.estado)}${field('Fecha de alta',fechaAR(n.creado_en))}${field('Sistema',s?.sistema)}${field('Plan',s?.plan)}<div><small>Estado de suscripción</small>${etiquetaEstado(estadoNegocio(n))}</div>${field('Modalidad de pago',s?.modalidad_pago)}${field('Vencimiento / fin de prueba',fechaAR(s?.vencimiento))}${field('ID de suscripción',s?.id_suscripcion)}</div><div class="va-admin-actions"><h4>Contacto del negocio</h4><p>Guardá el número de WhatsApp del responsable para enviar avisos de vencimiento.</p><div class="va-admin-buttons"><button type="button" id="vaEditPhone">Editar teléfono</button></div></div><div class="va-admin-actions"><h4>Administrar prueba gratuita</h4><p>Los cambios se validan en Supabase y requieren confirmación.</p><div class="va-admin-buttons"><button type="button" id="vaStartTrial" ${puedeIniciarPrueba(s)?'':'disabled'}>Iniciar prueba</button><button type="button" id="vaExtendTrial" ${puedeExtenderPrueba(s)?'':'disabled'}>Extender prueba</button></div><p class="va-admin-help">${!s?'Este negocio no tiene una suscripción para administrar.':(!puedeIniciarPrueba(s)&&!puedeExtenderPrueba(s))?'Las acciones no están disponibles para esta suscripción según su estado e historial.':'Duración permitida: de 1 a 30 días. La fecha de fin es exclusiva.'}</p></div><div class="va-admin-actions"><h4>Pagos y renovación</h4><p>Un pago confirmado renueva la suscripción por un mes.</p><div class="va-admin-buttons"><button type="button" id="vaPayManual" ${s?.id_suscripcion && estadoNegocio(n)!=='SUSPENDIDA' ?'':'disabled'}>Registrar pago manual</button></div></div><div class="va-admin-actions"><h4>Estado de la suscripción</h4><p>La suspensión conserva los datos y las fechas de vencimiento. Reactivar no agrega días.</p><div class="va-admin-buttons"><button type="button" id="vaSuspend" ${s?.id_suscripcion && estadoNegocio(n)!=='SUSPENDIDA' && estadoNegocio(n)!=='PENDIENTE' ?'':'disabled'} class="va-danger-btn">Suspender</button><button type="button" id="vaReactivate" ${s?.id_suscripcion && estadoNegocio(n)==='SUSPENDIDA' ?'':'disabled'}>Reactivar</button></div><p class="va-admin-help">La suspensión administrativa no cancela cobros automáticos de Mercado Pago. El acceso comercial debe verificar la suscripción en el servidor.</p></div><footer>Las operaciones requieren permisos administrativos.</footer></section>`;
  dialog.querySelector('.va-close').addEventListener('click',()=>dialog.remove());dialog.addEventListener('click',e=>{if(e.target===dialog)dialog.remove()});
+ dialog.querySelector('#vaEditPhone').addEventListener('click',()=>editarTelefonoNegocio(n));
  dialog.querySelector('#vaStartTrial').addEventListener('click',()=>pedirDiasPrueba(n,'iniciar'));
  dialog.querySelector('#vaExtendTrial').addEventListener('click',()=>pedirDiasPrueba(n,'extender'));
   dialog.querySelector('#vaPayManual').addEventListener('click',()=>pedirPagoManual(n));
@@ -70,6 +71,34 @@ function verFichaNegocio(id){
   dialog.querySelector('#vaReactivate').addEventListener('click',()=>confirmarEstadoSuscripcion(n,'reactivar'));
  document.body.append(dialog);dialog.querySelector('.va-close').focus();
 }
+// Edición segura: escritura únicamente mediante RPC administrativo de Supabase.
+function editarTelefonoNegocio(n){
+ cerrarDialogos();
+ const dialog=document.createElement('div');dialog.className='va-overlay';
+ dialog.innerHTML=`<section class="va-dialog va-confirm" role="dialog" aria-modal="true" aria-label="Editar teléfono"><header><h3>Editar teléfono</h3><button type="button" class="va-close" aria-label="Cerrar">×</button></header><p class="va-admin-intro">Negocio: <strong>${escapeHtml(n.nombre)}</strong></p><div class="va-pay-form"><label>Teléfono de WhatsApp<input id="vaTelefono" type="tel" maxlength="25" placeholder="Ej.: +54 9 3544 123456" value="${escapeHtml(n.telefono||'')}"></label></div><p class="va-admin-help">Incluí código de país y característica. Ejemplo: +54 9 3544 123456. Si lo dejás vacío, se borra el teléfono guardado.</p><p id="vaTelefonoError" class="va-trial-error" role="alert"></p><div class="va-admin-buttons"><button type="button" class="va-cancel">Cancelar</button><button type="button" class="va-accept">Guardar teléfono</button></div></section>`;
+ const cerrar=()=>dialog.remove();
+ dialog.querySelector('.va-close').addEventListener('click',cerrar);
+ dialog.querySelector('.va-cancel').addEventListener('click',cerrar);
+ dialog.addEventListener('click',e=>{if(e.target===dialog)cerrar();});
+ dialog.querySelector('.va-accept').addEventListener('click',async()=>{
+  const telefono=dialog.querySelector('#vaTelefono').value.trim();
+  const errorEl=dialog.querySelector('#vaTelefonoError');
+  if(telefono && (telefono.length>25||!/^\+?[0-9 ()-]{8,25}$/.test(telefono))){errorEl.textContent='Ingresá un número válido, por ejemplo +54 9 3544 123456.';return;}
+  const boton=dialog.querySelector('.va-accept');boton.disabled=true;boton.textContent='Guardando…';errorEl.textContent='';
+  try{
+   const {data,error}=await client.rpc('vicora_admin_guardar_telefono',{p_id_negocio:n.id_negocio,p_telefono:telefono});
+   if(error)throw error;
+   if(data?.ok!==true)throw Error('Supabase no confirmó la modificación.');
+   n.telefono=data.telefono||null;
+   cerrar();
+   const pagina=document.querySelector('.nav.active')?.dataset.page;
+   if(pagina==='suscripciones')await cargarSuscripciones();else await cargarNegocios();
+   mostrarAviso('Teléfono guardado correctamente.');
+  }catch(err){errorEl.textContent=err.message||String(err);boton.disabled=false;boton.textContent='Guardar teléfono';}
+ });
+ document.body.append(dialog);dialog.querySelector('#vaTelefono').focus();
+}
+
 function pedirDiasPrueba(n,accion){
  const s=n.suscripcion;if(!s?.id_suscripcion)return;
  cerrarDialogos();
