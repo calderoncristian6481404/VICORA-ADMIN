@@ -203,13 +203,68 @@ function pintarVencimientos(){
   }
   mensaje+=' Si ya realizaste el pago, por favor avisános.';
   const link=tel?`https://wa.me/${tel}?text=${encodeURIComponent(mensaje)}`:'';
+  const tipo=r.dias<0?'VENCIDO':r.dias===0?'VENCE_HOY':r.dias<=1?'URGENTE':r.dias<=7?'PROXIMO':'GENERAL';
+  const ultimo=avisosWhatsApp.find(a=>a.id_negocio===r.n.id_negocio && a.id_suscripcion===r.s.id_suscripcion);
+  const ultimaNota=ultimo?`<small>Último aviso: ${escapeHtml(fechaHoraAR(ultimo.fecha_aviso))}</small>`:'';
   return `<tr><td><strong>${escapeHtml(r.n.nombre)}</strong><small>${escapeHtml(r.n.id_negocio)}</small></td>`+
    `<td>${escapeHtml(r.n.responsable||'—')}</td><td>${fechaAR(r.s.vencimiento)}</td>`+
    `<td>${escapeHtml(texto)}</td><td>${etiquetaEstado(r.estado)}</td><td>`+
    (link?`<a class="va-detail-btn" href="${escapeHtml(link)}" target="_blank" rel="noopener noreferrer">WhatsApp</a>`:
    '<span title="Falta un teléfono válido">Sin teléfono</span>')+
-   `</td></tr>`;
+   `<button type="button" class="va-detail-btn" data-registrar-aviso="${escapeHtml(r.n.id_negocio)}" data-tipo-aviso="${tipo}">Registrar aviso</button>${ultimaNota}</td></tr>`;
  }).join(''):'<tr><td colspan="6" class="va-empty">No hay suscripciones con fecha para este filtro.</td></tr>';
+ tabla.querySelectorAll('[data-registrar-aviso]').forEach(btn=>btn.addEventListener('click',()=>{
+  const negocio=suscripcionesActuales.find(n=>n.id_negocio===btn.dataset.registrarAviso);
+  if(negocio)confirmarRegistroAviso(negocio,btn.dataset.tipoAviso);
+ }));
+}
+
+
+// PASO 10: registro manual. Abrir WhatsApp nunca se considera un envío confirmado.
+let avisosWhatsApp=[];
+function fechaHoraAR(fecha){
+ if(!fecha)return '—';
+ const d=new Date(fecha);
+ return Number.isNaN(d.getTime())?'—':new Intl.DateTimeFormat('es-AR',{
+  timeZone:'America/Argentina/Buenos_Aires',day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit'
+ }).format(d);
+}
+function pintarHistorialAvisos(){
+ const area=$('historialAvisos');if(!area)return;
+ const q=($('buscarAvisos')?.value||'').trim().toLocaleLowerCase('es');
+ const rows=avisosWhatsApp.filter(a=>[a.negocio,a.id_negocio,a.tipo_aviso,a.observaciones].some(x=>String(x||'').toLocaleLowerCase('es').includes(q)));
+ area.innerHTML=rows.length?`<div class="va-table-scroll"><table class="va-table"><thead><tr><th>Fecha y hora</th><th>Negocio</th><th>Tipo</th><th>Estado</th><th>Observaciones</th></tr></thead><tbody>${rows.map(a=>`<tr><td>${escapeHtml(fechaHoraAR(a.fecha_aviso))}</td><td>${escapeHtml(a.negocio||a.id_negocio)}</td><td>${escapeHtml(a.tipo_aviso)}</td><td>${escapeHtml(a.estado)}</td><td>${escapeHtml(a.observaciones||'—')}</td></tr>`).join('')}</tbody></table></div>`:'<p>No hay avisos registrados para esta búsqueda.</p>';
+}
+async function cargarHistorialAvisos(){
+ const area=$('historialAvisos');if(!area)return;
+ area.innerHTML='<p>Consultando avisos registrados…</p>';
+ const {data,error}=await client.rpc('vicora_admin_listar_avisos');
+ if(error){area.innerHTML=`<p role="alert">No se pudo consultar el historial: ${escapeHtml(error.message)}</p>`;return;}
+ avisosWhatsApp=Array.isArray(data)?data:[];
+ pintarHistorialAvisos();pintarVencimientos();
+}
+function confirmarRegistroAviso(n,tipo){
+ const s=n.suscripcion||{};
+ cerrarDialogos();
+ const dialog=document.createElement('div');dialog.className='va-overlay';
+ dialog.innerHTML=`<section class="va-dialog va-confirm" role="dialog" aria-modal="true" aria-label="Registrar aviso"><header><h3>Registrar aviso de WhatsApp</h3><button type="button" class="va-close" aria-label="Cerrar">×</button></header><p>Negocio: <strong>${escapeHtml(n.nombre)}</strong></p><p>Tipo: <strong>${escapeHtml(tipo)}</strong></p><p class="va-admin-help">Confirmá solo si realmente enviaste el mensaje o contactaste al negocio. Abrir WhatsApp no equivale a enviarlo.</p><label>Observaciones (opcional)<textarea id="vaAvisoObs" maxlength="500" rows="3" style="width:100%"></textarea></label><p id="vaAvisoError" role="alert" class="va-trial-error"></p><div class="va-admin-buttons"><button type="button" class="va-cancel">Cancelar</button><button type="button" class="va-accept">Confirmar contacto realizado</button></div></section>`;
+ const cerrar=()=>dialog.remove();
+ dialog.querySelector('.va-close').addEventListener('click',cerrar);
+ dialog.querySelector('.va-cancel').addEventListener('click',cerrar);
+ dialog.addEventListener('click',e=>{if(e.target===dialog)cerrar();});
+ dialog.querySelector('.va-accept').addEventListener('click',async()=>{
+  const btn=dialog.querySelector('.va-accept');btn.disabled=true;btn.textContent='Guardando…';
+  try{
+   const {data,error}=await client.rpc('vicora_admin_registrar_aviso',{
+    p_id_negocio:n.id_negocio,p_id_suscripcion:s.id_suscripcion||null,
+    p_tipo_aviso:tipo,p_observaciones:dialog.querySelector('#vaAvisoObs').value.trim()||null
+   });
+   if(error)throw error;
+   if(data?.ok!==true)throw Error('No se confirmó el registro.');
+   cerrar();mostrarAviso('Contacto registrado correctamente.');await cargarHistorialAvisos();
+  }catch(e){dialog.querySelector('#vaAvisoError').textContent=e.message||String(e);btn.disabled=false;btn.textContent='Confirmar contacto realizado';}
+ });
+ document.body.append(dialog);
 }
 
 // PASO 5: vista de suscripciones. Solo lectura; reutiliza el RPC seguro existente.
@@ -239,6 +294,7 @@ async function cargarSuscripciones(){
   <div class="va-sub-filters"><input id="buscarVencimientos" type="search" placeholder="Buscar negocio o responsable…" aria-label="Buscar vencimientos"><select id="filtroVencimientos" aria-label="Filtrar vencimientos"><option value="TODOS">Todos los vencimientos (incluye vigentes)</option><option value="PROXIMOS">Próximos 7 días</option><option value="HOY">Vencen hoy</option><option value="VENCIDOS">Vencidos</option></select></div>
   <p id="conteoVencimientos" class="va-count"></p>
   <div class="va-table-scroll"><table class="va-table"><thead><tr><th>Negocio</th><th>Responsable</th><th>Fecha</th><th>Restan</th><th>Estado</th><th>Contacto</th></tr></thead><tbody id="tablaVencimientos"></tbody></table></div>
+  <section class="panel" style="margin-top:20px"><div class="va-business-head"><div><h3>Historial de avisos por WhatsApp</h3><p>Solo contactos confirmados manualmente.</p></div><button type="button" class="va-refresh" id="actualizarAvisos">Actualizar historial</button></div><input type="search" id="buscarAvisos" placeholder="Buscar negocio, tipo u observación…" aria-label="Buscar historial"><div id="historialAvisos"></div></section>
   <hr style="margin:28px 0;border:0;border-top:1px solid #e5e7eb">
   <div class="va-sub-summary">${estados.map(e=>`<div class="va-sub-stat">${etiquetaEstado(e)}<strong>${counts[e]}</strong></div>`).join('')}</div>
  <div class="va-sub-filters"><input id="busquedaSuscripciones" type="search" placeholder="Buscar negocio, plan, sistema o ID…" aria-label="Buscar suscripciones"><select id="filtroSuscripciones" aria-label="Filtrar estado"><option value="TODAS">Todos los estados</option>${estados.map(e=>`<option value="${e}">${e}</option>`).join('')}</select></div>
@@ -249,8 +305,11 @@ async function cargarSuscripciones(){
  $('actualizarSuscripciones').addEventListener('click',cargarSuscripciones);
  $('buscarVencimientos').addEventListener('input',pintarVencimientos);
  $('filtroVencimientos').addEventListener('change',pintarVencimientos);
+ $('buscarAvisos').addEventListener('input',pintarHistorialAvisos);
+ $('actualizarAvisos').addEventListener('click',cargarHistorialAvisos);
  pintarVencimientos();
  pintarSuscripciones();
+ await cargarHistorialAvisos();
 }
 
 
