@@ -554,12 +554,59 @@ async function cargarPlanes(){
  if(error){$('pageContent').innerHTML=`<section class="panel"><h3>No se pudieron cargar los planes</h3><p>${escapeHtml(error.message)}</p><p>Ejecutá primero el SQL del Paso 8.</p><button class="va-refresh" id="retryPlanes">Reintentar</button></section>`;$('retryPlanes').addEventListener('click',cargarPlanes);return;}
  const datos=data||{};planesActuales=Array.isArray(datos.planes)?datos.planes:[];
  const sistemas=Array.isArray(datos.sistemas)?datos.sistemas:[];
- $('pageContent').innerHTML=`<section class="va-business"><div class="va-business-head"><div><h3>Planes y precios</h3><p>Cada sistema tiene sus propios planes. Los cambios se guardan en Supabase.</p></div><button class="va-refresh" id="refreshPlanes">Actualizar</button></div><div class="va-admin-buttons"><button type="button" class="va-refresh" id="crearPlan">+ Nuevo plan</button></div><div class="va-table-scroll"><table class="va-table"><thead><tr><th>Sistema</th><th>Plan</th><th>Precio mensual</th><th>Prueba</th><th>Estado</th><th>Acciones</th></tr></thead><tbody id="rowsPlanes"></tbody></table></div><p class="va-sub-note">Modificar un precio no altera los pagos ya registrados. La tarifa publicada debe coincidir con la que comunicás a tus clientes.</p></section>`;
+ $('pageContent').innerHTML=`<section class="va-business"><div class="va-business-head"><div><h3>Planes y precios</h3><p>Cada sistema tiene sus propios planes. Los cambios se guardan en Supabase.</p></div><button class="va-refresh" id="refreshPlanes">Actualizar</button></div><div class="va-admin-buttons"><button type="button" class="va-refresh" id="crearPlan">+ Nuevo plan</button><button type="button" class="va-refresh" id="prepararAumento">Avisar aumento de precio</button></div><div class="va-table-scroll"><table class="va-table"><thead><tr><th>Sistema</th><th>Plan</th><th>Precio mensual</th><th>Prueba</th><th>Estado</th><th>Acciones</th></tr></thead><tbody id="rowsPlanes"></tbody></table></div><p class="va-sub-note">Modificar un precio no altera los pagos ya registrados. La tarifa publicada debe coincidir con la que comunicás a tus clientes.</p></section>`;
  $('refreshPlanes').addEventListener('click',cargarPlanes);
  $('crearPlan').addEventListener('click',()=>editarPlan(null,sistemas));
+ $('prepararAumento').addEventListener('click',()=>prepararAvisoAumento());
  $('rowsPlanes').innerHTML=planesActuales.length?planesActuales.map(p=>`<tr><td>${escapeHtml(p.sistema)}</td><td><strong>${escapeHtml(p.nombre)}</strong><small>${escapeHtml(p.id_plan)}</small></td><td>${escapeHtml(formatoPrecio.format(Number(p.precio_mensual||0)))}</td><td>${escapeHtml(p.dias_prueba)} días</td><td>${etiquetaEstado(p.estado==='ACTIVO'?'ACTIVA':'SUSPENDIDA')}</td><td><button type="button" class="va-detail-btn" data-plan="${escapeHtml(p.id_plan)}">Editar</button></td></tr>`).join(''):'<tr><td colspan="6" class="va-empty">No hay planes registrados.</td></tr>';
  $('rowsPlanes').querySelectorAll('[data-plan]').forEach(b=>b.addEventListener('click',()=>editarPlan(planesActuales.find(p=>p.id_plan===b.dataset.plan),sistemas)));
 }
+// Avisos de aumento: preparación y contacto MANUAL, sin alterar tarifas ni suscripciones.
+// Para envío automático e historial permanente se requiere backend administrativo en Supabase.
+async function prepararAvisoAumento(){
+ cerrarDialogos();
+ const dialog=document.createElement('div');dialog.className='va-overlay';
+ dialog.innerHTML=`<section class="va-dialog va-confirm" role="dialog" aria-modal="true" aria-label="Avisos de aumento de precio"><header><h3>Avisar aumento de precio</h3><button type="button" class="va-close" aria-label="Cerrar">×</button></header>
+ <p class="va-admin-help">Prepará el aviso antes de cambiar el precio. Esta herramienta no cambia tarifas, no envía mensajes automáticamente ni registra contactos.</p>
+ <div class="va-pay-form"><label>Plan<select id="vaAumentoPlan"></select></label><label>Nuevo precio mensual (ARS)<input id="vaAumentoPrecio" type="number" min="0.01" step="0.01" placeholder="Ej.: 25000"></label><label>Fecha de vigencia<input id="vaAumentoFecha" type="date"></label></div>
+ <p id="vaAumentoError" class="va-trial-error" role="alert"></p><div class="va-admin-buttons"><button type="button" class="va-cancel">Cerrar</button><button type="button" class="va-accept" id="vaAumentoGenerar">Preparar avisos</button></div><div id="vaAumentoResultados"></div></section>`;
+ const close=()=>dialog.remove();
+ dialog.querySelector('.va-close').addEventListener('click',close);
+ dialog.querySelector('.va-cancel').addEventListener('click',close);
+ dialog.addEventListener('click',e=>{if(e.target===dialog)close();});
+ document.body.append(dialog);
+ const select=dialog.querySelector('#vaAumentoPlan');
+ select.innerHTML=planesActuales.filter(p=>p.estado==='ACTIVO').map(p=>`<option value="${escapeHtml(p.id_plan)}">${escapeHtml(p.sistema)} · ${escapeHtml(p.nombre)} (${escapeHtml(formatoPrecio.format(Number(p.precio_mensual||0)))})</option>`).join('');
+ if(!select.options.length){dialog.querySelector('#vaAumentoError').textContent='No hay planes activos para seleccionar.';return;}
+ dialog.querySelector('#vaAumentoGenerar').addEventListener('click',async()=>{
+  const plan=planesActuales.find(p=>p.id_plan===select.value);
+  const precio=Number(dialog.querySelector('#vaAumentoPrecio').value);
+  const fecha=dialog.querySelector('#vaAumentoFecha').value;
+  const errorEl=dialog.querySelector('#vaAumentoError');errorEl.textContent='';
+  if(!plan||!Number.isFinite(precio)||precio<=0||precio>999999999||!/^\d{4}-\d{2}-\d{2}$/.test(fecha)||fecha<=fechaHoyArgentina()){
+   errorEl.textContent='Elegí un plan, un precio válido y una fecha futura de vigencia.';return;
+  }
+  if(precio<=Number(plan.precio_mensual||0)){errorEl.textContent='El nuevo precio debe ser mayor que el actual para un aviso de aumento.';return;}
+  const boton=dialog.querySelector('#vaAumentoGenerar');boton.disabled=true;boton.textContent='Consultando negocios…';
+  try{
+   const {data,error}=await adminRpc('vicora_admin_negocios');if(error)throw error;
+   const negocios=(Array.isArray(data)?data:[]).filter(n=>n.suscripcion?.id_plan===plan.id_plan);
+   // Si el RPC no expone id_plan, no asumir destinatarios por coincidencia de nombre.
+   if(!negocios.length){
+    dialog.querySelector('#vaAumentoResultados').innerHTML='<p class="va-admin-help">No se identificaron negocios con este ID de plan en el listado administrativo. No se generaron destinatarios. Es necesario verificar que el RPC devuelva id_plan antes de notificar.</p>';return;
+   }
+   const asunto=`VICORA | Actualización de precio de ${plan.nombre}`;
+   const mensaje=n=>`Hola, ${n.responsable||n.nombre}. Te informamos que a partir del ${fechaAR(fecha)} el precio mensual de ${plan.nombre} de VICORA será de ${formatoPrecio.format(precio)} (actualmente ${formatoPrecio.format(Number(plan.precio_mensual||0))}). El nuevo importe se aplicará a las renovaciones que correspondan desde esa fecha, según las condiciones de tu suscripción. Si tenés consultas, respondé a este mensaje. Gracias por confiar en VICORA.`;
+   dialog.querySelector('#vaAumentoResultados').innerHTML=`<h4>Destinatarios identificados: ${negocios.length}</h4><p class="va-admin-help">Abrir WhatsApp o correo no confirma el envío. Contactá únicamente a quienes corresponda y conservá constancia del aviso. No se aplicó ningún cambio de precio.</p><div class="va-table-scroll"><table class="va-table"><thead><tr><th>Negocio</th><th>Contacto</th></tr></thead><tbody>${negocios.map(n=>{
+    const telefono=telefonoWhatsapp(n.telefono);
+    const wa=telefono?`https://wa.me/${telefono}?text=${encodeURIComponent(mensaje(n))}`:'';
+    const mail=n.email&&/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(n.email)?`mailto:${encodeURIComponent(n.email)}?subject=${encodeURIComponent(asunto)}&body=${encodeURIComponent(mensaje(n))}`:'';
+    return `<tr><td>${escapeHtml(n.nombre)}<small>${escapeHtml(n.responsable||'')}</small></td><td>${wa?`<a class="va-detail-btn" target="_blank" rel="noopener noreferrer" href="${escapeHtml(wa)}">WhatsApp</a>`:'Sin WhatsApp'} ${mail?`<a class="va-detail-btn" href="${escapeHtml(mail)}">Correo</a>`:'Sin correo'}</td></tr>`;
+   }).join('')}</tbody></table></div>`;
+  }catch(e){errorEl.textContent=e.message||String(e);}finally{boton.disabled=false;boton.textContent='Preparar avisos';}
+ });
+}
+
 function editarPlan(plan,sistemas){
  cerrarDialogos();
  const esNuevo=!plan;
