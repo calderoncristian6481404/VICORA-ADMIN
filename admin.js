@@ -554,10 +554,9 @@ async function cargarPlanes(){
  if(error){$('pageContent').innerHTML=`<section class="panel"><h3>No se pudieron cargar los planes</h3><p>${escapeHtml(error.message)}</p><p>Ejecutá primero el SQL del Paso 8.</p><button class="va-refresh" id="retryPlanes">Reintentar</button></section>`;$('retryPlanes').addEventListener('click',cargarPlanes);return;}
  const datos=data||{};planesActuales=Array.isArray(datos.planes)?datos.planes:[];
  const sistemas=Array.isArray(datos.sistemas)?datos.sistemas:[];
- $('pageContent').innerHTML=`<section class="va-business"><div class="va-business-head"><div><h3>Planes y precios</h3><p>Cada sistema tiene sus propios planes. Los cambios se guardan en Supabase.</p></div><button class="va-refresh" id="refreshPlanes">Actualizar</button></div><div class="va-admin-buttons"><button type="button" class="va-refresh" id="crearPlan">+ Nuevo plan</button><button type="button" class="va-refresh" id="prepararAumento">Avisar aumento de precio</button><button type="button" class="va-refresh" id="programarAumento">+ Programar aumento</button></div><div class="va-table-scroll"><table class="va-table"><thead><tr><th>Sistema</th><th>Plan</th><th>Precio mensual</th><th>Prueba</th><th>Estado</th><th>Acciones</th></tr></thead><tbody id="rowsPlanes"></tbody></table></div><p class="va-sub-note">Modificar un precio no altera los pagos ya registrados. La tarifa publicada debe coincidir con la que comunicás a tus clientes.</p><section class="panel" style="margin-top:22px"><div class="va-business-head"><div><h3>Aumentos programados</h3><p>Los aumentos no se aplican solos: requieren tu confirmación a partir de la fecha prevista.</p></div><button type="button" class="va-refresh" id="actualizarAumentos">Actualizar</button></div><div id="vaListaAumentos"><p>Cargando aumentos…</p></div></section></section>`;
+ $('pageContent').innerHTML=`<section class="va-business"><div class="va-business-head"><div><h3>Planes y precios</h3><p>Cada sistema tiene sus propios planes. Los cambios se guardan en Supabase.</p></div><button class="va-refresh" id="refreshPlanes">Actualizar</button></div><div class="va-admin-buttons"><button type="button" class="va-refresh" id="crearPlan">+ Nuevo plan</button><button type="button" class="va-refresh" id="programarAumento">+ Programar aumento</button></div><div class="va-table-scroll"><table class="va-table"><thead><tr><th>Sistema</th><th>Plan</th><th>Precio mensual</th><th>Prueba</th><th>Estado</th><th>Acciones</th></tr></thead><tbody id="rowsPlanes"></tbody></table></div><p class="va-sub-note">Modificar un precio no altera los pagos ya registrados. La tarifa publicada debe coincidir con la que comunicás a tus clientes.</p><section class="panel" style="margin-top:22px"><div class="va-business-head"><div><h3>Aumentos programados</h3><p>Los aumentos no se aplican solos: requieren tu confirmación a partir de la fecha prevista.</p></div><button type="button" class="va-refresh" id="actualizarAumentos">Actualizar</button></div><div id="vaListaAumentos"><p>Cargando aumentos…</p></div></section></section>`;
  $('refreshPlanes').addEventListener('click',cargarPlanes);
  $('crearPlan').addEventListener('click',()=>editarPlan(null,sistemas));
- $('prepararAumento').addEventListener('click',()=>prepararAvisoAumento());
  $('programarAumento').addEventListener('click',()=>programarAumento());
  $('actualizarAumentos').addEventListener('click',cargarAumentos);
  $('rowsPlanes').innerHTML=planesActuales.length?planesActuales.map(p=>`<tr><td>${escapeHtml(p.sistema)}</td><td><strong>${escapeHtml(p.nombre)}</strong><small>${escapeHtml(p.id_plan)}</small></td><td>${escapeHtml(formatoPrecio.format(Number(p.precio_mensual||0)))}</td><td>${escapeHtml(p.dias_prueba)} días</td><td>${etiquetaEstado(p.estado==='ACTIVO'?'ACTIVA':'SUSPENDIDA')}</td><td><button type="button" class="va-detail-btn" data-plan="${escapeHtml(p.id_plan)}">Editar</button></td></tr>`).join(''):'<tr><td colspan="6" class="va-empty">No hay planes registrados.</td></tr>';
@@ -577,11 +576,76 @@ async function cargarAumentos(){
  const pendientes=aumentosActuales.filter(a=>a.estado==='PENDIENTE').length;
  area.innerHTML=`<p class="va-admin-help">${pendientes} aumento(s) pendiente(s). Programar no cambia precios; aplicar exige confirmación manual y fecha cumplida.</p><div class="va-table-scroll"><table class="va-table"><thead><tr><th>Plan</th><th>Precio actual al programar</th><th>Precio propuesto</th><th>Fecha prevista</th><th>Estado</th><th>Acciones</th></tr></thead><tbody>${aumentosActuales.length?aumentosActuales.map(a=>{
   const pendiente=a.estado==='PENDIENTE',habilitado=pendiente&&a.fecha_prevista<=hoy;
-  return `<tr><td><strong>${escapeHtml(a.plan||a.id_plan)}</strong><small>${escapeHtml(a.id_plan)}</small></td><td>${escapeHtml(formatoPrecio.format(Number(a.precio_anterior)))}</td><td>${escapeHtml(formatoPrecio.format(Number(a.precio_nuevo)))}</td><td>${escapeHtml(fechaAR(a.fecha_prevista))}</td><td>${etiquetaEstado(a.estado)}${pendiente&&!habilitado?'<small>Esperando fecha prevista</small>':''}</td><td>${pendiente?`<button type="button" class="va-detail-btn" data-aplicar-aumento="${escapeHtml(a.id_aumento)}" ${habilitado?'':'disabled title="Aún no llegó la fecha prevista"'}>Confirmar y aplicar</button> <button type="button" class="va-detail-btn" data-cancelar-aumento="${escapeHtml(a.id_aumento)}">Cancelar aumento</button>`:'—'}</td></tr>`;
+  return `<tr><td><strong>${escapeHtml(a.plan||a.id_plan)}</strong><small>${escapeHtml(a.id_plan)}</small></td><td>${escapeHtml(formatoPrecio.format(Number(a.precio_anterior)))}</td><td>${escapeHtml(formatoPrecio.format(Number(a.precio_nuevo)))}</td><td>${escapeHtml(fechaAR(a.fecha_prevista))}</td><td>${etiquetaEstado(a.estado)}${pendiente&&!habilitado?'<small>Esperando fecha prevista</small>':''}</td><td>${pendiente?`<button type="button" class="va-detail-btn" data-avisar-aumento="${escapeHtml(a.id_aumento)}">Avisar por WhatsApp</button> <button type="button" class="va-detail-btn" data-aplicar-aumento="${escapeHtml(a.id_aumento)}" ${habilitado?'':'disabled title="Aún no llegó la fecha prevista"'}>Confirmar y aplicar</button> <button type="button" class="va-detail-btn" data-cancelar-aumento="${escapeHtml(a.id_aumento)}">Cancelar aumento</button>`:'—'}</td></tr>`;
  }).join(''):'<tr><td colspan="6" class="va-empty">Todavía no hay aumentos programados.</td></tr>'}</tbody></table></div>`;
+ area.querySelectorAll('[data-avisar-aumento]').forEach(b=>b.addEventListener('click',()=>abrirAvisosAumento(b.dataset.avisarAumento)));
  area.querySelectorAll('[data-aplicar-aumento]').forEach(b=>b.addEventListener('click',()=>confirmarAccionAumento(b.dataset.aplicarAumento,'aplicar')));
  area.querySelectorAll('[data-cancelar-aumento]').forEach(b=>b.addEventListener('click',()=>confirmarAccionAumento(b.dataset.cancelarAumento,'cancelar')));
 }
+
+// Contactos de aumento: WhatsApp se abre manualmente; nunca se marca como enviado al abrirlo.
+async function abrirAvisosAumento(idAumento){
+ const aumento=aumentosActuales.find(a=>a.id_aumento===idAumento&&a.estado==='PENDIENTE');
+ if(!aumento){mostrarAviso('Seleccioná un aumento pendiente.','error');return;}
+ cerrarDialogos();
+ const dialog=document.createElement('div');
+ dialog.className='va-overlay';
+ dialog.innerHTML=`<section class="va-dialog" role="dialog" aria-modal="true" aria-label="Avisos por WhatsApp de aumento">
+ <header><h3>Avisos de aumento por WhatsApp</h3><button type="button" class="va-close" aria-label="Cerrar">×</button></header>
+ <p class="va-admin-help">Plan: <strong>${escapeHtml(aumento.plan||aumento.id_plan)}</strong>. De ${escapeHtml(formatoPrecio.format(Number(aumento.precio_anterior)))} a ${escapeHtml(formatoPrecio.format(Number(aumento.precio_nuevo)))}. Fecha prevista: ${escapeHtml(fechaAR(aumento.fecha_prevista))}.</p>
+ <p class="va-admin-help">Abrir WhatsApp no envía el mensaje. Marcá «Avisado» únicamente después de enviarlo realmente.</p>
+ <div id="vaAvisosAumentoLista"><p>Consultando destinatarios e historial…</p></div>
+ <div class="va-admin-buttons"><button type="button" class="va-cancel">Cerrar</button></div></section>`;
+ const cerrar=()=>dialog.remove();
+ dialog.querySelector('.va-close').addEventListener('click',cerrar);
+ dialog.querySelector('.va-cancel').addEventListener('click',cerrar);
+ dialog.addEventListener('click',e=>{if(e.target===dialog)cerrar();});
+ document.body.append(dialog);
+ const lista=dialog.querySelector('#vaAvisosAumentoLista');
+ async function refrescar(){
+  lista.innerHTML='<p>Consultando destinatarios e historial…</p>';
+  const [nr,ar]=await Promise.all([
+   adminRpc('vicora_admin_negocios'),
+   adminRpc('vicora_admin_listar_avisos_aumento',{p_id_aumento:aumento.id_aumento})
+  ]);
+  if(nr.error||ar.error){
+   lista.innerHTML=`<p role="alert" class="va-trial-error">${escapeHtml((nr.error||ar.error).message||'Error al consultar avisos.')}</p>`;
+   return;
+  }
+  const negocios=(Array.isArray(nr.data)?nr.data:[])
+   .filter(n=>n.suscripcion?.id_plan===aumento.id_plan);
+  const avisados=new Set((Array.isArray(ar.data)?ar.data:[]).map(a=>a.id_negocio));
+  lista.innerHTML=`<p class="va-admin-help">Destinatarios: <strong>${negocios.length}</strong>. Avisados: <strong>${negocios.filter(n=>avisados.has(n.id_negocio)).length}</strong>.</p>
+  <div class="va-table-scroll"><table class="va-table"><thead><tr><th>Negocio</th><th>Estado</th><th>Contacto</th></tr></thead>
+  <tbody>${negocios.length?negocios.map(n=>{
+   const telefono=telefonoWhatsapp(n.telefono);
+   const mensaje=`Hola, ${n.responsable||n.nombre}. Te informamos que VICORA tiene previsto actualizar el precio mensual de ${aumento.plan||'VICORA Comercial'} de ${formatoPrecio.format(Number(aumento.precio_anterior))} a ${formatoPrecio.format(Number(aumento.precio_nuevo))} a partir del ${fechaAR(aumento.fecha_prevista)}, sujeto a confirmación administrativa. Te avisamos con anticipación para que puedas organizarte. Si tenés alguna consulta, estamos a disposición.`;
+   const link=telefono?`https://wa.me/${telefono}?text=${encodeURIComponent(mensaje)}`:'';
+   const avisado=avisados.has(n.id_negocio);
+   return `<tr><td><strong>${escapeHtml(n.nombre)}</strong><small>${escapeHtml(n.responsable||'')}</small></td>
+    <td>${avisado?'<span class="va-badge ok">AVISADO</span>':'<span class="va-badge neutral">PENDIENTE</span>'}</td>
+    <td>${link?`<a class="va-detail-btn" target="_blank" rel="noopener noreferrer" href="${escapeHtml(link)}">Abrir WhatsApp</a>`:'<span>Sin teléfono válido</span>'}
+    ${!avisado&&link?`<button type="button" class="va-detail-btn" data-aviso-negocio="${escapeHtml(n.id_negocio)}">Marcar como avisado</button>`:''}</td></tr>`;
+  }).join(''):'<tr><td colspan="3" class="va-empty">No se encontraron negocios con este plan en el listado administrativo.</td></tr>'}</tbody></table></div>`;
+  lista.querySelectorAll('[data-aviso-negocio]').forEach(btn=>btn.addEventListener('click',async()=>{
+   const negocio=negocios.find(n=>n.id_negocio===btn.dataset.avisoNegocio);
+   if(!negocio)return;
+   if(!window.confirm(`¿Confirmás que YA enviaste el WhatsApp a ${negocio.nombre}? Abrir el enlace no cuenta como envío.`))return;
+   btn.disabled=true;btn.textContent='Guardando…';
+   const {data,error}=await adminRpc('vicora_admin_marcar_aviso_aumento',{
+    p_id_aumento:aumento.id_aumento,p_id_negocio:negocio.id_negocio
+   });
+   if(error||data?.ok!==true){
+    mostrarAviso(error?.message||'Supabase no confirmó el registro.','error');
+    btn.disabled=false;btn.textContent='Marcar como avisado';return;
+   }
+   mostrarAviso(`Aviso registrado para ${negocio.nombre}.`);
+   await refrescar();
+  }));
+ }
+ await refrescar();
+}
+
 function programarAumento(){
  cerrarDialogos();
  const dialog=document.createElement('div');dialog.className='va-overlay';
@@ -629,49 +693,6 @@ function confirmarAccionAumento(id,accion){
 
 // Avisos de aumento: preparación y contacto MANUAL, sin alterar tarifas ni suscripciones.
 // Para envío automático e historial permanente se requiere backend administrativo en Supabase.
-async function prepararAvisoAumento(){
- cerrarDialogos();
- const dialog=document.createElement('div');dialog.className='va-overlay';
- dialog.innerHTML=`<section class="va-dialog va-confirm" role="dialog" aria-modal="true" aria-label="Avisos de aumento de precio"><header><h3>Avisar aumento de precio</h3><button type="button" class="va-close" aria-label="Cerrar">×</button></header>
- <p class="va-admin-help">Prepará el aviso antes de cambiar el precio. Esta herramienta no cambia tarifas, no envía mensajes automáticamente ni registra contactos.</p>
- <div class="va-pay-form"><label>Plan<select id="vaAumentoPlan"></select></label><label>Nuevo precio mensual (ARS)<input id="vaAumentoPrecio" type="number" min="0.01" step="0.01" placeholder="Ej.: 25000"></label><label>Fecha de vigencia<input id="vaAumentoFecha" type="date"></label></div>
- <p id="vaAumentoError" class="va-trial-error" role="alert"></p><div class="va-admin-buttons"><button type="button" class="va-cancel">Cerrar</button><button type="button" class="va-accept" id="vaAumentoGenerar">Preparar avisos</button></div><div id="vaAumentoResultados"></div></section>`;
- const close=()=>dialog.remove();
- dialog.querySelector('.va-close').addEventListener('click',close);
- dialog.querySelector('.va-cancel').addEventListener('click',close);
- dialog.addEventListener('click',e=>{if(e.target===dialog)close();});
- document.body.append(dialog);
- const select=dialog.querySelector('#vaAumentoPlan');
- select.innerHTML=planesActuales.filter(p=>p.estado==='ACTIVO').map(p=>`<option value="${escapeHtml(p.id_plan)}">${escapeHtml(p.sistema)} · ${escapeHtml(p.nombre)} (${escapeHtml(formatoPrecio.format(Number(p.precio_mensual||0)))})</option>`).join('');
- if(!select.options.length){dialog.querySelector('#vaAumentoError').textContent='No hay planes activos para seleccionar.';return;}
- dialog.querySelector('#vaAumentoGenerar').addEventListener('click',async()=>{
-  const plan=planesActuales.find(p=>p.id_plan===select.value);
-  const precio=Number(dialog.querySelector('#vaAumentoPrecio').value);
-  const fecha=dialog.querySelector('#vaAumentoFecha').value;
-  const errorEl=dialog.querySelector('#vaAumentoError');errorEl.textContent='';
-  if(!plan||!Number.isFinite(precio)||precio<=0||precio>999999999||!/^\d{4}-\d{2}-\d{2}$/.test(fecha)||fecha<=fechaHoyArgentina()){
-   errorEl.textContent='Elegí un plan, un precio válido y una fecha futura de vigencia.';return;
-  }
-  if(precio<=Number(plan.precio_mensual||0)){errorEl.textContent='El nuevo precio debe ser mayor que el actual para un aviso de aumento.';return;}
-  const boton=dialog.querySelector('#vaAumentoGenerar');boton.disabled=true;boton.textContent='Consultando negocios…';
-  try{
-   const {data,error}=await adminRpc('vicora_admin_negocios');if(error)throw error;
-   const negocios=(Array.isArray(data)?data:[]).filter(n=>n.suscripcion?.id_plan===plan.id_plan);
-   // Si el RPC no expone id_plan, no asumir destinatarios por coincidencia de nombre.
-   if(!negocios.length){
-    dialog.querySelector('#vaAumentoResultados').innerHTML='<p class="va-admin-help">No se identificaron negocios con este ID de plan en el listado administrativo. No se generaron destinatarios. Es necesario verificar que el RPC devuelva id_plan antes de notificar.</p>';return;
-   }
-   const asunto=`VICORA | Actualización de precio de ${plan.nombre}`;
-   const mensaje=n=>`Hola, ${n.responsable||n.nombre}. Te informamos que a partir del ${fechaAR(fecha)} el precio mensual de ${plan.nombre} de VICORA será de ${formatoPrecio.format(precio)} (actualmente ${formatoPrecio.format(Number(plan.precio_mensual||0))}). El nuevo importe se aplicará a las renovaciones que correspondan desde esa fecha, según las condiciones de tu suscripción. Si tenés consultas, respondé a este mensaje. Gracias por confiar en VICORA.`;
-   dialog.querySelector('#vaAumentoResultados').innerHTML=`<h4>Destinatarios identificados: ${negocios.length}</h4><p class="va-admin-help">Abrir WhatsApp o correo no confirma el envío. Contactá únicamente a quienes corresponda y conservá constancia del aviso. No se aplicó ningún cambio de precio.</p><div class="va-table-scroll"><table class="va-table"><thead><tr><th>Negocio</th><th>Contacto</th></tr></thead><tbody>${negocios.map(n=>{
-    const telefono=telefonoWhatsapp(n.telefono);
-    const wa=telefono?`https://wa.me/${telefono}?text=${encodeURIComponent(mensaje(n))}`:'';
-    const mail=n.email&&/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(n.email)?`mailto:${encodeURIComponent(n.email)}?subject=${encodeURIComponent(asunto)}&body=${encodeURIComponent(mensaje(n))}`:'';
-    return `<tr><td>${escapeHtml(n.nombre)}<small>${escapeHtml(n.responsable||'')}</small></td><td>${wa?`<a class="va-detail-btn" target="_blank" rel="noopener noreferrer" href="${escapeHtml(wa)}">WhatsApp</a>`:'Sin WhatsApp'} ${mail?`<a class="va-detail-btn" href="${escapeHtml(mail)}">Correo</a>`:'Sin correo'}</td></tr>`;
-   }).join('')}</tbody></table></div>`;
-  }catch(e){errorEl.textContent=e.message||String(e);}finally{boton.disabled=false;boton.textContent='Preparar avisos';}
- });
-}
 
 function editarPlan(plan,sistemas){
  cerrarDialogos();
