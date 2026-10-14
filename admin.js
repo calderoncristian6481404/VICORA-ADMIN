@@ -554,13 +554,79 @@ async function cargarPlanes(){
  if(error){$('pageContent').innerHTML=`<section class="panel"><h3>No se pudieron cargar los planes</h3><p>${escapeHtml(error.message)}</p><p>Ejecutá primero el SQL del Paso 8.</p><button class="va-refresh" id="retryPlanes">Reintentar</button></section>`;$('retryPlanes').addEventListener('click',cargarPlanes);return;}
  const datos=data||{};planesActuales=Array.isArray(datos.planes)?datos.planes:[];
  const sistemas=Array.isArray(datos.sistemas)?datos.sistemas:[];
- $('pageContent').innerHTML=`<section class="va-business"><div class="va-business-head"><div><h3>Planes y precios</h3><p>Cada sistema tiene sus propios planes. Los cambios se guardan en Supabase.</p></div><button class="va-refresh" id="refreshPlanes">Actualizar</button></div><div class="va-admin-buttons"><button type="button" class="va-refresh" id="crearPlan">+ Nuevo plan</button><button type="button" class="va-refresh" id="prepararAumento">Avisar aumento de precio</button></div><div class="va-table-scroll"><table class="va-table"><thead><tr><th>Sistema</th><th>Plan</th><th>Precio mensual</th><th>Prueba</th><th>Estado</th><th>Acciones</th></tr></thead><tbody id="rowsPlanes"></tbody></table></div><p class="va-sub-note">Modificar un precio no altera los pagos ya registrados. La tarifa publicada debe coincidir con la que comunicás a tus clientes.</p></section>`;
+ $('pageContent').innerHTML=`<section class="va-business"><div class="va-business-head"><div><h3>Planes y precios</h3><p>Cada sistema tiene sus propios planes. Los cambios se guardan en Supabase.</p></div><button class="va-refresh" id="refreshPlanes">Actualizar</button></div><div class="va-admin-buttons"><button type="button" class="va-refresh" id="crearPlan">+ Nuevo plan</button><button type="button" class="va-refresh" id="prepararAumento">Avisar aumento de precio</button><button type="button" class="va-refresh" id="programarAumento">+ Programar aumento</button></div><div class="va-table-scroll"><table class="va-table"><thead><tr><th>Sistema</th><th>Plan</th><th>Precio mensual</th><th>Prueba</th><th>Estado</th><th>Acciones</th></tr></thead><tbody id="rowsPlanes"></tbody></table></div><p class="va-sub-note">Modificar un precio no altera los pagos ya registrados. La tarifa publicada debe coincidir con la que comunicás a tus clientes.</p><section class="panel" style="margin-top:22px"><div class="va-business-head"><div><h3>Aumentos programados</h3><p>Los aumentos no se aplican solos: requieren tu confirmación a partir de la fecha prevista.</p></div><button type="button" class="va-refresh" id="actualizarAumentos">Actualizar</button></div><div id="vaListaAumentos"><p>Cargando aumentos…</p></div></section></section>`;
  $('refreshPlanes').addEventListener('click',cargarPlanes);
  $('crearPlan').addEventListener('click',()=>editarPlan(null,sistemas));
  $('prepararAumento').addEventListener('click',()=>prepararAvisoAumento());
+ $('programarAumento').addEventListener('click',()=>programarAumento());
+ $('actualizarAumentos').addEventListener('click',cargarAumentos);
  $('rowsPlanes').innerHTML=planesActuales.length?planesActuales.map(p=>`<tr><td>${escapeHtml(p.sistema)}</td><td><strong>${escapeHtml(p.nombre)}</strong><small>${escapeHtml(p.id_plan)}</small></td><td>${escapeHtml(formatoPrecio.format(Number(p.precio_mensual||0)))}</td><td>${escapeHtml(p.dias_prueba)} días</td><td>${etiquetaEstado(p.estado==='ACTIVO'?'ACTIVA':'SUSPENDIDA')}</td><td><button type="button" class="va-detail-btn" data-plan="${escapeHtml(p.id_plan)}">Editar</button></td></tr>`).join(''):'<tr><td colspan="6" class="va-empty">No hay planes registrados.</td></tr>';
  $('rowsPlanes').querySelectorAll('[data-plan]').forEach(b=>b.addEventListener('click',()=>editarPlan(planesActuales.find(p=>p.id_plan===b.dataset.plan),sistemas)));
+ await cargarAumentos();
 }
+// Aumentos programados: siempre gestionados por RPC con autorización en Supabase.
+// No se modifica ninguna tarifa al programar; aplicar requiere confirmación explícita.
+let aumentosActuales=[];
+async function cargarAumentos(){
+ const area=$('vaListaAumentos');if(!area)return;
+ area.innerHTML='<p>Consultando aumentos programados…</p>';
+ const {data,error}=await adminRpc('vicora_admin_listar_aumentos');
+ if(error){area.innerHTML=`<p role="alert">No se pudo cargar el historial: ${escapeHtml(error.message)}</p>`;return;}
+ aumentosActuales=Array.isArray(data)?data:[];
+ const hoy=fechaHoyArgentina();
+ const pendientes=aumentosActuales.filter(a=>a.estado==='PENDIENTE').length;
+ area.innerHTML=`<p class="va-admin-help">${pendientes} aumento(s) pendiente(s). Programar no cambia precios; aplicar exige confirmación manual y fecha cumplida.</p><div class="va-table-scroll"><table class="va-table"><thead><tr><th>Plan</th><th>Precio actual al programar</th><th>Precio propuesto</th><th>Fecha prevista</th><th>Estado</th><th>Acciones</th></tr></thead><tbody>${aumentosActuales.length?aumentosActuales.map(a=>{
+  const pendiente=a.estado==='PENDIENTE',habilitado=pendiente&&a.fecha_prevista<=hoy;
+  return `<tr><td><strong>${escapeHtml(a.plan||a.id_plan)}</strong><small>${escapeHtml(a.id_plan)}</small></td><td>${escapeHtml(formatoPrecio.format(Number(a.precio_anterior)))}</td><td>${escapeHtml(formatoPrecio.format(Number(a.precio_nuevo)))}</td><td>${escapeHtml(fechaAR(a.fecha_prevista))}</td><td>${etiquetaEstado(a.estado)}${pendiente&&!habilitado?'<small>Esperando fecha prevista</small>':''}</td><td>${pendiente?`<button type="button" class="va-detail-btn" data-aplicar-aumento="${escapeHtml(a.id_aumento)}" ${habilitado?'':'disabled title="Aún no llegó la fecha prevista"'}>Confirmar y aplicar</button> <button type="button" class="va-detail-btn" data-cancelar-aumento="${escapeHtml(a.id_aumento)}">Cancelar aumento</button>`:'—'}</td></tr>`;
+ }).join(''):'<tr><td colspan="6" class="va-empty">Todavía no hay aumentos programados.</td></tr>'}</tbody></table></div>`;
+ area.querySelectorAll('[data-aplicar-aumento]').forEach(b=>b.addEventListener('click',()=>confirmarAccionAumento(b.dataset.aplicarAumento,'aplicar')));
+ area.querySelectorAll('[data-cancelar-aumento]').forEach(b=>b.addEventListener('click',()=>confirmarAccionAumento(b.dataset.cancelarAumento,'cancelar')));
+}
+function programarAumento(){
+ cerrarDialogos();
+ const dialog=document.createElement('div');dialog.className='va-overlay';
+ dialog.innerHTML=`<section class="va-dialog va-confirm" role="dialog" aria-modal="true" aria-label="Programar aumento"><header><h3>Programar aumento de precio</h3><button type="button" class="va-close" aria-label="Cerrar">×</button></header><p class="va-admin-help">Guardá una propuesta para confirmar más adelante. No cambia el precio ni envía avisos automáticamente.</p><div class="va-pay-form"><label>Plan<select id="vaProgPlan"></select></label><label>Nuevo precio mensual (ARS)<input type="number" id="vaProgPrecio" min="0.01" max="999999999.99" step="0.01" placeholder="Ej.: 25000"></label><label>Fecha prevista<input type="date" id="vaProgFecha" min="${fechaHoyArgentina()}"></label><label>Observaciones (opcional)<textarea id="vaProgObs" maxlength="1000" rows="3"></textarea></label></div><p id="vaProgError" class="va-trial-error" role="alert"></p><div class="va-admin-buttons"><button type="button" class="va-cancel">Cancelar</button><button type="button" class="va-accept">Programar aumento</button></div></section>`;
+ const cerrar=()=>dialog.remove();
+ dialog.querySelector('.va-close').addEventListener('click',cerrar);dialog.querySelector('.va-cancel').addEventListener('click',cerrar);
+ dialog.addEventListener('click',e=>{if(e.target===dialog)cerrar();});
+ const select=dialog.querySelector('#vaProgPlan');
+ select.innerHTML=planesActuales.filter(p=>p.estado==='ACTIVO').map(p=>`<option value="${escapeHtml(p.id_plan)}">${escapeHtml(p.sistema)} · ${escapeHtml(p.nombre)} (${escapeHtml(formatoPrecio.format(Number(p.precio_mensual||0)))})</option>`).join('');
+ dialog.querySelector('.va-accept').addEventListener('click',async()=>{
+  const plan=planesActuales.find(p=>p.id_plan===select.value);
+  const input=dialog.querySelector('#vaProgPrecio').value.trim();const precio=Number(input);
+  const fecha=dialog.querySelector('#vaProgFecha').value;const obs=dialog.querySelector('#vaProgObs').value.trim();const err=dialog.querySelector('#vaProgError');err.textContent='';
+  if(!plan||!input||!/^\d+(?:\.\d{1,2})?$/.test(input)||!Number.isFinite(precio)||precio<=Number(plan.precio_mensual)||precio>999999999.99||!/^\d{4}-\d{2}-\d{2}$/.test(fecha)||fecha<fechaHoyArgentina()){
+   err.textContent='Seleccioná un plan, un precio mayor al actual y una fecha de hoy en adelante.';return;
+  }
+  const btn=dialog.querySelector('.va-accept');btn.disabled=true;btn.textContent='Programando…';
+  try{
+   const {data,error}=await adminRpc('vicora_admin_programar_aumento',{p_id_plan:plan.id_plan,p_precio_nuevo:precio,p_fecha_prevista:fecha,p_observaciones:obs||null});
+   if(error)throw error;if(data?.ok!==true)throw Error('Supabase no confirmó la programación.');
+   cerrar();mostrarAviso('Aumento programado. El precio actual no cambió.');await cargarAumentos();
+  }catch(e){err.textContent=e.message||String(e);btn.disabled=false;btn.textContent='Programar aumento';}
+ });
+ document.body.append(dialog);
+ if(!select.options.length){dialog.querySelector('#vaProgError').textContent='No hay planes activos.';dialog.querySelector('.va-accept').disabled=true;}
+}
+function confirmarAccionAumento(id,accion){
+ const a=aumentosActuales.find(x=>x.id_aumento===id&&x.estado==='PENDIENTE');if(!a)return;
+ const aplicar=accion==='aplicar';
+ cerrarDialogos();const dialog=document.createElement('div');dialog.className='va-overlay';
+ dialog.innerHTML=`<section class="va-dialog va-confirm" role="dialog" aria-modal="true" aria-label="${aplicar?'Confirmar aumento':'Cancelar aumento'}"><header><h3>${aplicar?'Confirmar y aplicar aumento':'Cancelar aumento programado'}</h3><button type="button" class="va-close">×</button></header><p>Plan: <strong>${escapeHtml(a.plan||a.id_plan)}</strong></p><p>De <strong>${escapeHtml(formatoPrecio.format(Number(a.precio_anterior)))}</strong> a <strong>${escapeHtml(formatoPrecio.format(Number(a.precio_nuevo)))}</strong>.</p><p>Fecha prevista: <strong>${escapeHtml(fechaAR(a.fecha_prevista))}</strong>.</p><p class="va-inline-confirm">${aplicar?'Esta acción cambia el precio mensual del plan en Supabase AHORA. No modifica pagos anteriores ni envía mensajes. Revisá antes de confirmar.':'El aumento quedará CANCELADO y no podrá aplicarse. El precio actual no cambia.'}</p><p id="vaConfirmAumentoError" class="va-trial-error" role="alert"></p><div class="va-admin-buttons"><button type="button" class="va-cancel">Volver</button><button type="button" class="va-accept ${aplicar?'':'va-danger-btn'}">${aplicar?'Sí, aplicar nuevo precio':'Sí, cancelar aumento'}</button></div></section>`;
+ const cerrar=()=>dialog.remove();dialog.querySelector('.va-close').addEventListener('click',cerrar);dialog.querySelector('.va-cancel').addEventListener('click',cerrar);dialog.addEventListener('click',e=>{if(e.target===dialog)cerrar();});
+ dialog.querySelector('.va-accept').addEventListener('click',async()=>{
+  const btn=dialog.querySelector('.va-accept');btn.disabled=true;btn.textContent='Procesando…';
+  try{
+   const rpc=aplicar?'vicora_admin_aplicar_aumento':'vicora_admin_cancelar_aumento';
+   const {data,error}=await adminRpc(rpc,{p_id_aumento:a.id_aumento});
+   if(error)throw error;if(data?.ok!==true)throw Error('Supabase no confirmó la operación.');
+   cerrar();mostrarAviso(aplicar?'Precio actualizado por confirmación administrativa.':'Aumento cancelado.');
+   if(aplicar)await cargarPlanes();else await cargarAumentos();
+  }catch(e){dialog.querySelector('#vaConfirmAumentoError').textContent=e.message||String(e);btn.disabled=false;btn.textContent=aplicar?'Sí, aplicar nuevo precio':'Sí, cancelar aumento';}
+ });
+ document.body.append(dialog);
+}
+
 // Avisos de aumento: preparación y contacto MANUAL, sin alterar tarifas ni suscripciones.
 // Para envío automático e historial permanente se requiere backend administrativo en Supabase.
 async function prepararAvisoAumento(){
