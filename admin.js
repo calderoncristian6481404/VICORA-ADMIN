@@ -63,30 +63,9 @@ function renderInicio(d){
  ${metric('Suspendidas',d.suspendidas,'Suspensión administrativa')}
  ${metric('Pagos del mes',d.pagos_mes,'Estados acreditados / confirmados')}
  ${metric('Importe del mes',money,'Pagos registrados en la tabla pagos')}
- </div><section class="panel"><h3>Resumen actualizado</h3><p>Fecha de referencia: ${escapeHtml(d.fecha_consulta)} (Argentina). Los vencimientos se calculan por fecha real, incluso cuando el estado almacenado todavía no se actualizó.</p><button type="button" id="refreshSummary" class="va-refresh">Actualizar datos</button></section><section class="panel"><h3>Mercado Pago · Prueba de conexión</h3><p>Verifica la conexión segura con Mercado Pago. No genera cobros ni suscripciones.</p><button type="button" id="vaTestMercadoPago" class="va-refresh">Probar conexión con Mercado Pago</button><p id="vaTestMercadoPagoResultado" role="status" aria-live="polite" style="margin-top:12px;white-space:pre-wrap;overflow-wrap:anywhere"></p></section>`;
+ </div><section class="panel"><h3>Resumen actualizado</h3><p>Fecha de referencia: ${escapeHtml(d.fecha_consulta)} (Argentina). Los vencimientos se calculan por fecha real, incluso cuando el estado almacenado todavía no se actualizó.</p><button type="button" id="refreshSummary" class="va-refresh">Actualizar datos</button></section>`;
  $('refreshSummary').addEventListener('click',cargarInicio);
-  $('vaTestMercadoPago').addEventListener('click',probarConexionMercadoPago);
 }
-// Prueba administrativa de lectura: no crea pagos ni suscripciones.
-async function probarConexionMercadoPago(){
- const boton=$('vaTestMercadoPago'),salida=$('vaTestMercadoPagoResultado');
- if(!boton||!salida)return;
- boton.disabled=true;boton.textContent='Comprobando conexión…';salida.textContent='Consultando Mercado Pago de forma segura…';
- try{
-  await asegurarSesionAdmin();
-  let {data,error}=await client.functions.invoke('vicora-mercadopago',{body:{}});
-  if(error){
-   let detalle='';
-   try{if(error.context instanceof Response){const cuerpo=await error.context.clone().json();detalle=cuerpo?.mensaje||cuerpo?.error||'';}}
-   catch(_){}
-   throw Error([error.message,detalle].filter(Boolean).join(' · '));
-  }
-  if(data?.conectado===true){salida.textContent='✅ '+(data.mensaje||'Conexión correcta')+' · Entorno de prueba. No se realizó ningún cobro.';}
-  else{salida.textContent='⚠️ Mercado Pago no confirmó la conexión: '+String(data?.mensaje||data?.error||'Respuesta inesperada');}
- }catch(e){salida.textContent='❌ No se pudo completar la prueba: '+(e.message||String(e))+'. No se realizó ningún cobro.';}
- finally{boton.disabled=false;boton.textContent='Probar conexión con Mercado Pago';}
-}
-
 async function cargarInicio(){
  $('pageContent').innerHTML='<section class="panel"><p>Consultando información real de Supabase…</p></section>';
  const {data,error}=await adminRpc('vicora_admin_resumen');
