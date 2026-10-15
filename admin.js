@@ -463,11 +463,14 @@ async function cargarPagos(){
  <section class="panel"><h3>Seguimiento de suscripciones</h3><p>Seleccioná un estado para revisar los negocios. No se generan cargos automáticamente.</p>
  <div class="va-sub-filters"><select id="filtroCobranza" aria-label="Filtrar cobranzas"><option value="VENCIDA">Vencidas (revisar)</option><option value="ACTIVA">Activas</option><option value="PRUEBA">En prueba</option><option value="SUSPENDIDA">Suspendidas</option><option value="TODAS">Todas</option></select><input id="buscarCobranza" type="search" placeholder="Buscar negocio o responsable…" aria-label="Buscar negocio"></div>
  <p id="conteoCobranza" class="va-count"></p><div class="va-table-scroll"><table class="va-table"><thead><tr><th>Negocio</th><th>Responsable</th><th>Estado</th><th>Vencimiento</th><th>Acción</th></tr></thead><tbody id="filasCobranza"></tbody></table></div></section>
- <section class="panel" id="vaReportes"><p>Preparando reportes…</p></section>
+  <section class="panel va-comprobantes" id="vaComprobantes"><div class="va-business-head"><div><h3>Comprobantes pendientes <span id="vaCantidadComprobantes" class="va-badge neutral">…</span></h3><p>Verificá que la transferencia se haya acreditado en tu banco antes de aprobar.</p></div><button type="button" class="va-refresh" id="vaActualizarComprobantes">Actualizar comprobantes</button></div><div id="vaListadoComprobantes" aria-live="polite"><p>Consultando comprobantes…</p></div></section>
+  <section class="panel" id="vaReportes"><p>Preparando reportes…</p></section>
  <section class="panel"><div class="va-business-head"><div><h3>Historial de pagos</h3><p>Pagos reales registrados en Supabase.</p></div></div>
  <input id="searchPagos" type="search" placeholder="Buscar negocio, referencia o medio…" aria-label="Buscar pagos"><p class="va-count" id="countPagos"></p>
  <div class="va-table-scroll"><table class="va-table"><thead><tr><th>Fecha</th><th>Negocio</th><th>Importe</th><th>Medio</th><th>Estado</th><th>Referencia VICORA</th><th>Período</th></tr></thead><tbody id="rowsPagos"></tbody></table></div></section></section>`;
  $('refreshPagos').addEventListener('click',cargarPagos);
+  $('vaActualizarComprobantes').addEventListener('click',cargarComprobantesPendientes);
+  void cargarComprobantesPendientes();
  const pintarCobranza=()=>{
   const filtro=$('filtroCobranza').value;
   const q=$('buscarCobranza').value.trim().toLocaleLowerCase('es');
@@ -493,6 +496,60 @@ async function cargarPagos(){
  else $('vaReportes').innerHTML='<p role="alert">No se pudieron cargar los reportes: falta información de Supabase.</p>';
 }
 
+
+// Comprobantes bancarios privados: acceso por Storage con la sesión del administrador.
+let comprobantesPendientes=[];
+async function cargarComprobantesPendientes(){
+ const area=$('vaListadoComprobantes'), contador=$('vaCantidadComprobantes');
+ if(!area)return;
+ area.innerHTML='<p>Consultando solicitudes pendientes…</p>';
+ const {data,error}=await adminRpc('vicora_admin_listar_comprobantes');
+ if(!area.isConnected)return;
+ if(error){area.innerHTML=`<p role="alert">No se pudieron consultar los comprobantes: ${escapeHtml(error.message)}</p>`;contador.textContent='Error';return;}
+ comprobantesPendientes=Array.isArray(data)?data:[];
+ contador.textContent=String(comprobantesPendientes.length);
+ if(!comprobantesPendientes.length){area.innerHTML='<p>No hay comprobantes pendientes de revisión.</p>';return;}
+ const negocios=await adminRpc('vicora_admin_negocios');
+ const porId=new Map((Array.isArray(negocios.data)?negocios.data:[]).map(n=>[n.id_negocio,n.nombre]));
+ area.innerHTML=`<div class="va-table-scroll"><table class="va-table"><thead><tr><th>Fecha</th><th>Negocio</th><th>Importe</th><th>Estado</th><th>Acciones</th></tr></thead><tbody>${comprobantesPendientes.map(c=>`<tr><td>${escapeHtml(fechaHoraAR(c.fecha_solicitud))}</td><td><strong>${escapeHtml(porId.get(c.id_negocio)||c.id_negocio)}</strong><small>${escapeHtml(c.id_suscripcion)}</small></td><td>${escapeHtml(formatoPrecio.format(Number(c.importe||0)))}</td><td>${etiquetaEstado(c.estado)}</td><td><div class="va-proof-actions"><button type="button" class="va-detail-btn" data-ver-comprobante="${escapeHtml(c.id_solicitud)}">Ver comprobante</button><button type="button" class="va-detail-btn" data-aprobar-comprobante="${escapeHtml(c.id_solicitud)}">Aprobar</button><button type="button" class="va-detail-btn va-proof-reject" data-rechazar-comprobante="${escapeHtml(c.id_solicitud)}">Rechazar</button></div></td></tr>`).join('')}</tbody></table></div>`;
+ area.querySelectorAll('[data-ver-comprobante]').forEach(b=>b.addEventListener('click',()=>verComprobantePrivado(b.dataset.verComprobante)));
+ area.querySelectorAll('[data-aprobar-comprobante]').forEach(b=>b.addEventListener('click',()=>revisarComprobante(b.dataset.aprobarComprobante,'APROBAR')));
+ area.querySelectorAll('[data-rechazar-comprobante]').forEach(b=>b.addEventListener('click',()=>revisarComprobante(b.dataset.rechazarComprobante,'RECHAZAR')));
+}
+async function verComprobantePrivado(id){
+ const c=comprobantesPendientes.find(x=>x.id_solicitud===id);if(!c)return;
+ // Abrir ventana inmediatamente evita bloqueos de ventanas emergentes tras await.
+ const ventana=window.open('about:blank','_blank');
+ if(ventana){ventana.opener=null;ventana.document.title='Abriendo comprobante…';ventana.document.body.textContent='Generando enlace temporal seguro…';}
+ try{
+  await asegurarSesionAdmin();
+  if(!c.comprobante_path)throw Error('Esta solicitud no tiene un archivo asociado.');
+  const {data,error}=await client.storage.from('vicora-comprobantes').createSignedUrl(c.comprobante_path,120);
+  if(error)throw error;
+  if(!data?.signedUrl)throw Error('No se pudo generar el enlace temporal.');
+  if(ventana&&!ventana.closed)ventana.location.replace(data.signedUrl);
+  else {mostrarAviso('El navegador bloqueó la ventana. Permití ventanas emergentes para VICORA ADMIN.','error');}
+ }catch(e){if(ventana&&!ventana.closed)ventana.close();mostrarAviso('No se pudo abrir el comprobante: '+(e.message||String(e)),'error');}
+}
+function revisarComprobante(id,accion){
+ const c=comprobantesPendientes.find(x=>x.id_solicitud===id);if(!c)return;
+ const aprobar=accion==='APROBAR';cerrarDialogos();
+ const dialog=document.createElement('div');dialog.className='va-overlay';
+ dialog.innerHTML=`<section class="va-dialog va-confirm" role="dialog" aria-modal="true" aria-label="${aprobar?'Aprobar transferencia':'Rechazar transferencia'}"><header><h3>${aprobar?'Aprobar transferencia':'Rechazar comprobante'}</h3><button type="button" class="va-close" aria-label="Cerrar">×</button></header><p>Negocio: <strong>${escapeHtml(c.id_negocio)}</strong></p><p>Importe informado: <strong>${escapeHtml(formatoPrecio.format(Number(c.importe||0)))}</strong></p><p class="va-inline-confirm">${aprobar?'Aprobá únicamente si verificaste el ingreso real del dinero en tu cuenta bancaria. Se registrará el pago y se renovará la suscripción.':'Se rechazará la solicitud sin registrar un pago ni cambiar el vencimiento.'}</p><div class="va-pay-form"><label>Observaciones ${aprobar?'(opcional)':'(motivo del rechazo)'}<textarea id="vaComprobanteObs" rows="3" maxlength="500" ${aprobar?'':'required'}></textarea></label></div><p class="va-trial-error" id="vaComprobanteError" role="alert"></p><div class="va-admin-buttons"><button type="button" class="va-cancel">Cancelar</button><button type="button" class="va-accept ${aprobar?'':'va-danger-btn'}">${aprobar?'Confirmar aprobación y renovación':'Confirmar rechazo'}</button></div></section>`;
+ const cerrar=()=>dialog.remove();dialog.querySelector('.va-close').addEventListener('click',cerrar);dialog.querySelector('.va-cancel').addEventListener('click',cerrar);dialog.addEventListener('click',e=>{if(e.target===dialog)cerrar();});
+ dialog.querySelector('.va-accept').addEventListener('click',async()=>{
+  const obs=dialog.querySelector('#vaComprobanteObs').value.trim();const err=dialog.querySelector('#vaComprobanteError');
+  if(!aprobar&&!obs){err.textContent='Ingresá el motivo del rechazo.';return;}
+  const btn=dialog.querySelector('.va-accept');btn.disabled=true;btn.textContent='Procesando…';err.textContent='';
+  try{
+   const {data,error}=await adminRpc('vicora_admin_revisar_comprobante',{p_id_solicitud:id,p_accion:accion,p_observaciones:obs||null});
+   if(error)throw error;if(data?.ok!==true)throw Error('Supabase no confirmó la revisión.');
+   cerrar();await cargarPagos();
+   mostrarAviso(aprobar?`Pago aprobado. Referencia ${data.referencia}. Nuevo vencimiento: ${fechaAR(data.proximo_vencimiento)}.`:'Comprobante rechazado correctamente.');
+  }catch(e){err.textContent=e.message||String(e);btn.disabled=false;btn.textContent=aprobar?'Confirmar aprobación y renovación':'Confirmar rechazo';}
+ });
+ document.body.append(dialog);dialog.querySelector('#vaComprobanteObs').focus();
+}
 
 // PASO 12: reportes de lectura sobre RPCs existentes.
 // Solo se cuentan pagos confirmados/acreditados; ANULADO queda excluido.

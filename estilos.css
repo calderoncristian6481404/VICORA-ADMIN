@@ -133,3 +133,10 @@
 
 /* Paso 8: quinta opción del menú inferior */
 @media(max-width:760px){.sidebar{grid-template-columns:repeat(5,minmax(0,1fr))!important}.sidebar .nav{font-size:10px}.sidebar .nav .nav-icon{font-size:21px}}
+/* VICORA ADMIN - Comprobantes pendientes */
+.va-comprobantes{margin:20px 0;max-width:none}
+.va-proof-actions{display:flex;flex-wrap:wrap;gap:7px}
+.va-proof-actions button{white-space:nowrap}
+.va-proof-reject{color:#b91c1c;background:#fff1f2;border-color:#fecdd3}
+.va-comprobantes .va-table{min-width:720px}
+.va-comprobantes textarea{width:100%;padding:12px;border:1px solid #cbd5e1;border-radius:9px;font:inherit}
