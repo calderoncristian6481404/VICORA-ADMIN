@@ -467,7 +467,7 @@ async function cargarPagos(){
   <section class="panel" id="vaReportes"><p>Preparando reportes…</p></section>
  <section class="panel"><div class="va-business-head"><div><h3>Historial de pagos</h3><p>Pagos reales registrados en Supabase.</p></div></div>
  <input id="searchPagos" type="search" placeholder="Buscar negocio, referencia o medio…" aria-label="Buscar pagos"><p class="va-count" id="countPagos"></p>
- <div class="va-table-scroll"><table class="va-table"><thead><tr><th>Fecha</th><th>Negocio</th><th>Importe</th><th>Medio</th><th>Estado</th><th>Referencia VICORA</th><th>Período</th></tr></thead><tbody id="rowsPagos"></tbody></table></div></section></section>`;
+ <div class="va-table-scroll"><table class="va-table"><thead><tr><th>Fecha</th><th>Negocio</th><th>Importe</th><th>Medio</th><th>Estado</th><th>Referencia VICORA</th><th>Período</th><th>Notificación</th></tr></thead><tbody id="rowsPagos"></tbody></table></div></section></section>`;
  $('refreshPagos').addEventListener('click',cargarPagos);
   $('vaActualizarComprobantes').addEventListener('click',cargarComprobantesPendientes);
   void cargarComprobantesPendientes();
@@ -486,7 +486,8 @@ async function cargarPagos(){
   const q=$('searchPagos').value.trim().toLowerCase();
   const rows=pagos.filter(p=>[p.negocio,p.id_negocio,p.referencia,p.comprobante_bancario,p.metodo,p.estado].some(v=>String(v||'').toLowerCase().includes(q)));
   $('countPagos').textContent=`Mostrando ${rows.length} de ${pagos.length} pagos`;
-  $('rowsPagos').innerHTML=rows.length?rows.map(p=>`<tr><td>${fechaAR(p.fecha_pago)}</td><td>${escapeHtml(p.negocio||p.id_negocio)}</td><td>${escapeHtml(fmt.format(Number(p.importe||0)))}</td><td>${escapeHtml(p.metodo)}</td><td>${etiquetaEstado(p.estado)}</td><td>${escapeHtml(p.referencia||'—')}</td><td>${fechaAR(p.periodo_desde)} a ${fechaAR(p.periodo_hasta)}</td></tr>`).join(''):'<tr><td colspan="7" class="va-empty">Todavía no hay pagos para mostrar.</td></tr>';
+  $('rowsPagos').innerHTML=rows.length?rows.map(p=>`<tr><td>${fechaAR(p.fecha_pago)}</td><td>${escapeHtml(p.negocio||p.id_negocio)}</td><td>${escapeHtml(fmt.format(Number(p.importe||0)))}</td><td>${escapeHtml(p.metodo)}</td><td>${etiquetaEstado(p.estado)}</td><td>${escapeHtml(p.referencia||'—')}</td><td>${fechaAR(p.periodo_desde)} a ${fechaAR(p.periodo_hasta)}</td><td>${['MANUAL','TRANSFERENCIA','TRANSFERENCIA_BANCARIA'].includes(String(p.metodo||'').toUpperCase())&&['CONFIRMADO','ACREDITADO','APROBADO'].includes(String(p.estado||'').toUpperCase())?`<button type="button" class="va-detail-btn" data-notificar-pago="${escapeHtml(p.id_pago||p.referencia||'')}">WhatsApp</button>`:'—'}</td></tr>`).join(''):'<tr><td colspan="8" class="va-empty">Todavía no hay pagos para mostrar.</td></tr>';
+  $('rowsPagos').querySelectorAll('[data-notificar-pago]').forEach(b=>b.addEventListener('click',()=>{const p=pagos.find(x=>String(x.id_pago||x.referencia||'')===b.dataset.notificarPago);if(!p)return;const n=negocios.find(x=>x.id_negocio===p.id_negocio);notificarRevisionWhatsapp(n||{id_negocio:p.id_negocio,nombre:p.negocio},'APROBADO',p.importe,p.periodo_hasta);}));
  };
  $('filtroCobranza').addEventListener('change',pintarCobranza);
  $('buscarCobranza').addEventListener('input',pintarCobranza);
@@ -496,6 +497,32 @@ async function cargarPagos(){
  else $('vaReportes').innerHTML='<p role="alert">No se pudieron cargar los reportes: falta información de Supabase.</p>';
 }
 
+
+// Notificación manual: se prepara el texto, nunca se envía automáticamente.
+function notificarRevisionWhatsapp(negocio,resultado,importe,vencimiento,motivo=''){
+ const nombre=negocio?.nombre||'tu negocio';
+ const telefono=telefonoWhatsapp(negocio?.telefono);
+ const dinero=new Intl.NumberFormat('es-AR',{style:'currency',currency:'ARS'}).format(Number(importe||0));
+ const mensaje=resultado==='APROBADO'
+  ?`Hola, ${negocio?.responsable||nombre}. Te escribimos de VICORA Comercial. Confirmamos que el pago de ${dinero} de ${nombre} fue aprobado. Tu suscripción está activa y el próximo vencimiento es el ${fechaAR(vencimiento)}. ¡Muchas gracias!`
+  :`Hola, ${negocio?.responsable||nombre}. Te escribimos de VICORA Comercial. El comprobante de ${dinero} de ${nombre} fue rechazado.${motivo?' Motivo: '+motivo+'.':''} Podés ingresar a Mi suscripción y enviar uno nuevo.`;
+ cerrarDialogos();
+ const dialog=document.createElement('div');dialog.className='va-overlay';
+ dialog.innerHTML=`<section class="va-dialog va-confirm" role="dialog" aria-modal="true" aria-label="Notificar por WhatsApp"><header><h3>Notificar por WhatsApp</h3><button type="button" class="va-close" aria-label="Cerrar">×</button></header><p><strong>${escapeHtml(nombre)}</strong></p><p class="va-admin-help">El mensaje se abrirá en WhatsApp, pero no se enviará hasta que presiones Enviar. Revisá el número y el texto.</p><label class="va-days-label" for="vaNotificarTelefono">Número de WhatsApp (con código de área)</label><input id="vaNotificarTelefono" type="tel" value="${escapeHtml(telefono||negocio?.telefono||'')}" placeholder="Ej.: 5493511234567" style="width:100%;padding:11px;border:1px solid #cbd5e1;border-radius:9px"><label class="va-days-label" for="vaNotificarMensaje">Mensaje</label><textarea id="vaNotificarMensaje" rows="7" style="width:100%;padding:11px;border:1px solid #cbd5e1;border-radius:9px;resize:vertical"></textarea><p class="va-trial-error" id="vaNotificarError" role="alert"></p><div class="va-admin-buttons"><button type="button" class="va-cancel">Cerrar</button><button type="button" class="va-accept">Abrir WhatsApp</button></div></section>`;
+ const cerrar=()=>dialog.remove();
+ dialog.querySelector('.va-close').addEventListener('click',cerrar);
+ dialog.querySelector('.va-cancel').addEventListener('click',cerrar);
+ dialog.addEventListener('click',e=>{if(e.target===dialog)cerrar();});
+ dialog.querySelector('#vaNotificarMensaje').value=mensaje;
+ dialog.querySelector('.va-accept').addEventListener('click',()=>{
+  const numero=telefonoWhatsapp(dialog.querySelector('#vaNotificarTelefono').value);
+  const texto=dialog.querySelector('#vaNotificarMensaje').value.trim();
+  if(!numero){dialog.querySelector('#vaNotificarError').textContent='Ingresá un número de celular válido con código de área.';return;}
+  if(!texto){dialog.querySelector('#vaNotificarError').textContent='El mensaje no puede estar vacío.';return;}
+  window.open(`https://wa.me/${numero}?text=${encodeURIComponent(texto)}`,'_blank','noopener,noreferrer');
+ });
+ document.body.append(dialog);
+}
 
 // Comprobantes bancarios privados: acceso por Storage con la sesión del administrador.
 let comprobantesPendientes=[];
@@ -546,6 +573,14 @@ function revisarComprobante(id,accion){
    if(error)throw error;if(data?.ok!==true)throw Error('Supabase no confirmó la revisión.');
    cerrar();await cargarPagos();
    mostrarAviso(aprobar?`Pago aprobado. Referencia ${data.referencia}. Nuevo vencimiento: ${fechaAR(data.proximo_vencimiento)}.`:'Comprobante rechazado correctamente.');
+   // Se abre el diálogo de notificación solamente tras la confirmación del servidor.
+   const negocio=negociosActuales.find(n=>n.id_negocio===c.id_negocio);
+   if(negocio){notificarRevisionWhatsapp(negocio,aprobar?'APROBADO':'RECHAZADO',c.importe,data.proximo_vencimiento,obs);}
+   else{
+    const respuesta=await adminRpc('vicora_admin_negocios');
+    const n=(Array.isArray(respuesta.data)?respuesta.data:[]).find(n=>n.id_negocio===c.id_negocio);
+    notificarRevisionWhatsapp(n||{nombre:c.id_negocio},aprobar?'APROBADO':'RECHAZADO',c.importe,data.proximo_vencimiento,obs);
+   }
   }catch(e){err.textContent=e.message||String(e);btn.disabled=false;btn.textContent=aprobar?'Confirmar aprobación y renovación':'Confirmar rechazo';}
  });
  document.body.append(dialog);dialog.querySelector('#vaComprobanteObs').focus();
