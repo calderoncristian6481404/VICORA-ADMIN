@@ -47,7 +47,7 @@ async function adminRpc(nombre, parametros) {
 }
 
 const pages={
- inicio:'Inicio',negocios:'Negocios',suscripciones:'Suscripciones',pagos:'Pagos',planes:'Planes y precios'
+ inicio:'Inicio',negocios:'Negocios',suscripciones:'Suscripciones',pagos:'Pagos',planes:'Planes y precios',comunicaciones:'Comunicaciones'
 };
 function screen(which){$('login').hidden=which!=='login';$('loading').hidden=which!=='loading';$('app').hidden=which!=='app';}
 function escapeHtml(value){return String(value??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
@@ -825,7 +825,112 @@ function editarPlan(plan,sistemas){
  document.body.append(dialog);dialog.querySelector('#pNombre').focus();
 }
 
-function showPage(key){key=pages[key]?key:'inicio';$('pageTitle').textContent=pages[key];document.querySelectorAll('.nav').forEach(b=>b.classList.toggle('active',b.dataset.page===key));if(key==='inicio'){cargarInicio();return;}if(key==='negocios'){cargarNegocios();return;}if(key==='suscripciones'){cargarSuscripciones();return;}if(key==='pagos'){cargarPagos();return;}if(key==='planes'){cargarPlanes();return;}
+
+// Comunicaciones: WhatsApp manual + registro permanente protegido por RPC.
+let comunicacionesNegocios=[];
+let comunicacionesHistorial=[];
+let comunicacionSeleccionados=new Set();
+let comunicacionActual=null;
+
+async function cargarComunicaciones(){
+ $('pageContent').innerHTML='<section class="panel"><p>Cargando negocios y comunicaciones…</p></section>';
+ const [nr,hr]=await Promise.all([
+  adminRpc('vicora_admin_negocios'),
+  adminRpc('vicora_admin_listar_comunicaciones')
+ ]);
+ if(nr.error||hr.error){
+  $('pageContent').innerHTML=`<section class="panel"><h3>No se pudo cargar Comunicaciones</h3><p>${escapeHtml((nr.error||hr.error).message)}</p><p>Si todavía no ejecutaste el SQL incluido, hacelo primero en Supabase.</p><button class="va-refresh" id="vaReintentarCom">Reintentar</button></section>`;
+  $('vaReintentarCom').onclick=cargarComunicaciones;return;
+ }
+ comunicacionesNegocios=Array.isArray(nr.data)?nr.data:[];
+ comunicacionesHistorial=Array.isArray(hr.data)?hr.data:[];
+ $('pageContent').innerHTML=`<section class="va-business va-com">
+  <div class="va-business-head"><div><h3>Comunicaciones por WhatsApp</h3><p>Elegí destinatarios, redactá un aviso y registrá cada envío manualmente.</p></div><button class="va-refresh" id="vaActualizarCom">Actualizar</button></div>
+  <div class="va-com-form">
+   <label>Asunto del comunicado<input id="vaComAsunto" maxlength="120" placeholder="Ej.: Próxima actualización de VICORA"></label>
+   <label>Mensaje para los clientes<textarea id="vaComMensaje" rows="5" maxlength="3000" placeholder="Escribí tu comunicado…"></textarea></label>
+   <div class="va-com-buttons"><button type="button" class="va-refresh" id="vaCrearCom">Crear comunicado para seleccionados</button></div>
+  </div>
+  <div class="va-business-head"><div><h3>Destinatarios</h3><p>Seleccioná uno, varios o todos. Solo se preparan mensajes; no se envían automáticamente.</p></div></div>
+  <input type="search" id="vaBuscarCom" placeholder="Buscar negocio o responsable…" aria-label="Buscar destinatarios">
+  <p class="va-count" id="vaComConteo"></p>
+  <div class="va-com-selectall"><label><input type="checkbox" id="vaTodosCom"> Seleccionar todos los negocios</label></div>
+  <div class="va-table-scroll"><table class="va-table"><thead><tr><th>Elegir</th><th>Negocio</th><th>Responsable</th><th>WhatsApp</th></tr></thead><tbody id="vaComNegocios"></tbody></table></div>
+  <section class="panel va-com-history"><div class="va-business-head"><div><h3>Comunicados e historial</h3><p>WhatsApp y el registro son acciones separadas: marcá enviado únicamente después de enviarlo.</p></div></div><div id="vaComHistorial"></div></section>
+ </section>`;
+ $('vaActualizarCom').onclick=cargarComunicaciones;
+ $('vaBuscarCom').oninput=pintarDestinatariosCom;
+ $('vaTodosCom').onchange=e=>{
+  if(e.target.checked) comunicacionesNegocios.forEach(n=>comunicacionSeleccionados.add(n.id_negocio));
+  else comunicacionSeleccionados.clear();
+  pintarDestinatariosCom();
+ };
+ $('vaCrearCom').onclick=crearComunicacion;
+ pintarDestinatariosCom();pintarHistorialCom();
+}
+function pintarDestinatariosCom(){
+ const area=$('vaComNegocios');if(!area)return;
+ const q=($('vaBuscarCom').value||'').trim().toLocaleLowerCase('es');
+ const filtrados=comunicacionesNegocios.filter(n=>[n.nombre,n.responsable,n.email,n.telefono].some(v=>String(v||'').toLocaleLowerCase('es').includes(q)));
+ $('vaComConteo').textContent=`Seleccionados: ${comunicacionSeleccionados.size} · Mostrando ${filtrados.length} de ${comunicacionesNegocios.length}`;
+ $('vaTodosCom').checked=comunicacionesNegocios.length>0&&comunicacionesNegocios.every(n=>comunicacionSeleccionados.has(n.id_negocio));
+ area.innerHTML=filtrados.map(n=>`<tr><td><input type="checkbox" data-com-seleccion="${escapeHtml(n.id_negocio)}" ${comunicacionSeleccionados.has(n.id_negocio)?'checked':''}></td><td><strong>${escapeHtml(n.nombre)}</strong></td><td>${escapeHtml(n.responsable||'—')}</td><td>${escapeHtml(n.telefono||'Sin teléfono')}</td></tr>`).join('')||'<tr><td colspan="4">No hay negocios para esta búsqueda.</td></tr>';
+ area.querySelectorAll('[data-com-seleccion]').forEach(el=>el.onchange=()=>{
+  if(el.checked)comunicacionSeleccionados.add(el.dataset.comSeleccion);
+  else comunicacionSeleccionados.delete(el.dataset.comSeleccion);
+  pintarDestinatariosCom();
+ });
+}
+async function crearComunicacion(){
+ const asunto=$('vaComAsunto').value.trim(),mensaje=$('vaComMensaje').value.trim();
+ if(!asunto||!mensaje){mostrarAviso('Completá el asunto y el mensaje.','error');return;}
+ if(!comunicacionSeleccionados.size){mostrarAviso('Seleccioná al menos un negocio.','error');return;}
+ const btn=$('vaCrearCom');btn.disabled=true;btn.textContent='Guardando…';
+ try{
+  const {data,error}=await adminRpc('vicora_admin_crear_comunicacion',{
+   p_asunto:asunto,p_mensaje:mensaje,p_destinatarios:[...comunicacionSeleccionados]
+  });
+  if(error)throw error;
+  if(data?.ok!==true)throw Error('No se confirmó la creación del comunicado.');
+  comunicacionSeleccionados.clear();
+  await cargarComunicaciones();
+  mostrarAviso('Comunicado creado. Ahora podés abrir WhatsApp para cada cliente.');
+ }catch(e){mostrarAviso(e.message||String(e),'error');btn.disabled=false;btn.textContent='Crear comunicado para seleccionados';}
+}
+function pintarHistorialCom(){
+ const area=$('vaComHistorial');if(!area)return;
+ const grupos=new Map();
+ comunicacionesHistorial.forEach(c=>{
+  if(!grupos.has(c.id_comunicacion))grupos.set(c.id_comunicacion,{asunto:c.asunto,mensaje:c.mensaje,fecha:c.creado_en,rows:[]});
+  grupos.get(c.id_comunicacion).rows.push(c);
+ });
+ area.innerHTML=[...grupos.entries()].map(([id,g])=>{
+  const enviados=g.rows.filter(r=>r.enviado_en).length;
+  return `<article class="va-com-group"><h4>${escapeHtml(g.asunto)}</h4><p>${escapeHtml(fechaHoraAR(g.fecha))} · ${enviados} de ${g.rows.length} marcados como enviados</p><details><summary>Ver mensaje y destinatarios</summary><div class="va-com-text">${escapeHtml(g.mensaje)}</div><div class="va-table-scroll"><table class="va-table"><thead><tr><th>Negocio</th><th>Estado</th><th>Acciones</th></tr></thead><tbody>${g.rows.map(r=>{
+   const tel=telefonoWhatsapp(r.telefono);
+   return `<tr><td><strong>${escapeHtml(r.negocio||r.id_negocio)}</strong><small>${escapeHtml(r.responsable||'')}</small></td><td>${r.enviado_en?`<span class="va-badge ok">Enviado</span><small>${escapeHtml(fechaHoraAR(r.enviado_en))}</small>`:'<span class="va-badge neutral">Pendiente</span>'}</td><td><div class="va-proof-actions"><button type="button" class="va-detail-btn va-com-wa" data-com-wa="${escapeHtml(r.id_destinatario)}" ${tel?'':'disabled'}>WhatsApp</button><button type="button" class="va-detail-btn" data-com-marcar="${escapeHtml(r.id_destinatario)}" ${r.enviado_en?'disabled':''}>Marcar enviado</button></div></td></tr>`;
+  }).join('')}</tbody></table></div></details></article>`;
+ }).join('')||'<p>Todavía no creaste comunicados.</p>';
+ area.querySelectorAll('[data-com-wa]').forEach(btn=>btn.onclick=()=>{
+  const r=comunicacionesHistorial.find(x=>String(x.id_destinatario)===btn.dataset.comWa);if(!r)return;
+  const tel=telefonoWhatsapp(r.telefono);
+  if(!tel){mostrarAviso('El negocio no tiene un WhatsApp válido.','error');return;}
+  const texto=`Hola, ${r.responsable||r.negocio||'¿cómo estás?'}. Te contactamos de VICORA.\n\n*${r.asunto}*\n\n${r.mensaje}\n\nSaludos, equipo VICORA.`;
+  window.open(`https://wa.me/${tel}?text=${encodeURIComponent(texto)}`,'_blank','noopener,noreferrer');
+ });
+ area.querySelectorAll('[data-com-marcar]').forEach(btn=>btn.onclick=async()=>{
+  if(!confirm('¿Confirmás que enviaste el mensaje por WhatsApp?'))return;
+  btn.disabled=true;
+  const {data,error}=await adminRpc('vicora_admin_marcar_comunicacion_enviada',{p_id_destinatario:btn.dataset.comMarcar});
+  if(error||data?.ok!==true){mostrarAviso(error?.message||'No se pudo guardar.','error');btn.disabled=false;return;}
+  const h=await adminRpc('vicora_admin_listar_comunicaciones');
+  if(h.error){mostrarAviso(h.error.message,'error');return;}
+  comunicacionesHistorial=Array.isArray(h.data)?h.data:[];
+  pintarHistorialCom();mostrarAviso('Comunicación marcada como enviada.');
+ });
+}
+
+function showPage(key){key=pages[key]?key:'inicio';$('pageTitle').textContent=pages[key];document.querySelectorAll('.nav').forEach(b=>b.classList.toggle('active',b.dataset.page===key));if(key==='inicio'){cargarInicio();return;}if(key==='negocios'){cargarNegocios();return;}if(key==='suscripciones'){cargarSuscripciones();return;}if(key==='pagos'){cargarPagos();return;}if(key==='planes'){cargarPlanes();return;}if(key==='comunicaciones'){cargarComunicaciones();return;}
  const descriptions={negocios:'Próxima etapa: listado de negocios y suscripciones, con operaciones administrativas seguras.',suscripciones:'Próxima etapa: planes, precios, renovaciones y suspensiones.',pagos:'Próxima etapa: historial detallado de pagos y filtros.'};
  $('pageContent').innerHTML=`<section class="panel"><span class="status">Acceso verificado</span><h3>${escapeHtml(pages[key])}</h3><p>${escapeHtml(descriptions[key])}</p></section>`;
 }
